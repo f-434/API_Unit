@@ -1,0 +1,20 @@
+# build artifacts
+/apiunit
+/apiunit.exe
+/backend/web/
+/data/
+/backend/data/
+/frontend/dist/
+.tmp/
+
+# dependencies
+/frontend/node_modules/
+
+# local editor / agent settings
+.claude/
+.vscode/
+.idea/
+
+# logs
+*.log
+npm-debug.log*
