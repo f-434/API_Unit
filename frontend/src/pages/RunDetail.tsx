@@ -19,6 +19,7 @@ import AuditReportView from '../components/AuditReportView'
 import InjectionReportView from '../components/InjectionReportView'
 import RunItems from '../components/RunItems'
 import { DiffPanel, FindingsTable, SnapshotTable } from '../components/RequestDiffTabs'
+import { stressPlan } from '../progress'
 
 function RunningOverview({ live }: { live?: Live }) {
   if (!live) return <EmptyPanel text="测试运行中，等待第一批数据…" />
@@ -152,6 +153,7 @@ export default function RunDetail() {
   if (!data) return <EmptyPanel text="测试不存在或已被清理。" />
 
   const isRunning = status === 'running' || status === 'queued'
+  const plan = kind === 'stress' ? stressPlan(data.config, live) : null
   const headerKpis = (
     <div className="kpi-grid" style={{ marginBottom: 14 }}>
       <Kpi label="状态" value={<StatusTag status={status} />} />
@@ -164,6 +166,13 @@ export default function RunDetail() {
         <Kpi label="QPS" value={((summary?.qps ?? live?.qps) || 0).toFixed(2)} />
       )}
       {kind === 'stress' && <Kpi label="RPM" value={((summary?.rpm ?? live?.rpm) || 0).toFixed(2)} />}
+      {kind === 'stress' && isRunning && plan && (
+        <Kpi
+          label="进度"
+          value={`${plan.percent.toFixed(0)}%`}
+          suffix={plan.remainingMs > 0 ? `${plan.estimated ? '预计剩' : '剩'} ${fmtDuration(plan.remainingMs)}` : undefined}
+        />
+      )}
       <Kpi label="耗时" value={fmtDuration(summary?.elapsedMs ?? live?.elapsedMs)} />
       <Kpi label="成本" value={fmtCost(summary?.cost)} />
     </div>
@@ -189,7 +198,7 @@ export default function RunDetail() {
     tabs = [
       {
         key: 'overview', label: '实时 / 报告',
-        children: <StressReportView aggregate={reportData?.aggregate} models={reportData?.models} live={live} />,
+        children: <StressReportView aggregate={reportData?.aggregate} models={reportData?.models} live={live} config={data.config} />,
       },
       { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },

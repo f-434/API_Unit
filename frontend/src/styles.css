@@ -90,6 +90,7 @@ a { color: #165dff; }
   font-size: 12px; line-height: 1.55; overflow: auto; white-space: pre-wrap; word-break: break-all;
 }
 .json-block .copy { position: absolute; right: 8px; top: 8px; opacity: .75; }
+.json-toolbar { display: flex; justify-content: flex-end; margin-bottom: 4px; }
 .json-tree .ant-tree-node-content-wrapper { width: 100%; }
 .json-tree .json-row { display: flex; gap: 6px; align-items: baseline; }
 .json-tree .json-key { color: #7c3aed; }

@@ -1,8 +1,9 @@
-import { Alert, Space, Table, Tag, Tooltip } from 'antd'
+import { Alert, Progress, Space, Table, Tag, Tooltip } from 'antd'
 import type { Aggregate, HistBucket, Live, ModelAggregate, ModelLive, SeriesPoint } from '../types'
 import { EmptyPanel, Kpi, ProtocolTag } from './common'
 import { BarChart, DonutChart, SeriesCharts } from './charts'
-import { errorTypeLabel, fmtCost, fmtInt, fmtMs, fmtNum, fmtPct, fmtTime, statusLabel, truncate } from '../format'
+import { fmtCost, fmtDuration, fmtInt, fmtMs, fmtNum, fmtPct, fmtTime, statusLabel, truncate } from '../format'
+import { stressPlan } from '../progress'
 
 function statusColor(status: number) {
   if (status === 0) return '#94a3b8'
@@ -12,11 +13,13 @@ function statusColor(status: number) {
   return '#dc2626'
 }
 
-export default function StressReportView({ aggregate, models, live }: {
+export default function StressReportView({ aggregate, models, live, config }: {
   aggregate?: Aggregate
   models?: ModelAggregate[]
   live?: Live
+  config?: any
 }) {
+  const plan = stressPlan(config, live)
   const series: SeriesPoint[] = aggregate?.series || live?.series || []
   const hasData = !!aggregate || !!live
   if (!hasData) return <EmptyPanel text="暂无压测数据。" />
@@ -63,6 +66,13 @@ export default function StressReportView({ aggregate, models, live }: {
         <Kpi label="输出 Token" value={fmtInt(tokens?.completion)} />
         <Kpi label="成本" value={fmtCost(tokens?.cost)} />
         <Kpi label="实际并发" value={live ? fmtInt(live.activeConcurrency) : '-'} />
+        {live?.status === 'running' && plan && (
+          <Kpi
+            label="进度"
+            value={`${plan.percent.toFixed(0)}%`}
+            suffix={plan.remainingMs > 0 ? `${plan.estimated ? '预计剩' : '剩'} ${fmtDuration(plan.remainingMs)}` : undefined}
+          />
+        )}
       </div>
 
       {live && live.status === 'running' && (
@@ -71,7 +81,28 @@ export default function StressReportView({ aggregate, models, live }: {
           showIcon
           style={{ marginBottom: 14 }}
           message={live.phase || '压测运行中'}
-          description={<Space wrap><span>已完成 {live.completed} / {live.planned || '—'}</span><span>当前模型 {live.currentModel || '-'}</span><Tag color="processing">{statusLabel(live.status)}</Tag></Space>}
+          description={plan ? (
+            <div>
+              <Progress
+                percent={Number(plan.percent.toFixed(1))}
+                size="small"
+                status="active"
+                style={{ maxWidth: 560, marginBottom: 6 }}
+              />
+              <Space wrap>
+                <span>
+                  {plan.mode === 'fixed'
+                    ? `已完成 ${live.completed} / ${plan.plannedRequests || live.planned || '—'}`
+                    : `已运行 ${fmtDuration(live.elapsedMs)} / ${fmtDuration(plan.plannedMs)}`}
+                </span>
+                {plan.remainingMs > 0 && <span>{plan.estimated ? '预计剩余' : '剩余'} {fmtDuration(plan.remainingMs)}</span>}
+                <span>当前模型 {live.currentModel || '-'}</span>
+                <Tag color="processing">{statusLabel(live.status)}</Tag>
+              </Space>
+            </div>
+          ) : (
+            <Space wrap><span>已完成 {live.completed} / {live.planned || '—'}</span><span>当前模型 {live.currentModel || '-'}</span><Tag color="processing">{statusLabel(live.status)}</Tag></Space>
+          )}
         />
       )}
 
@@ -126,14 +157,13 @@ export default function StressReportView({ aggregate, models, live }: {
         <div className="panel-title">错误分组</div>
         {errors.length ? (
           <Table
-            rowKey={(r, i) => `${r.type}-${i}`}
+            rowKey={(r, i) => `${r.count}-${i}`}
             size="small"
             dataSource={errors}
             pagination={false}
             columns={[
-              { title: '类型', dataIndex: 'type', width: 120, render: (v: string) => <Tag color="red">{errorTypeLabel(v)}</Tag> },
               { title: '次数', dataIndex: 'count', width: 80 },
-              { title: '状态码', dataIndex: 'statuses', width: 120, render: (v: number[]) => (v || []).map(s => <Tag key={s}>{s === 0 ? '网络' : s}</Tag>) },
+              { title: '状态码', dataIndex: 'statuses', width: 150, render: (v: number[]) => (v || []).map(s => <Tag key={s} color={s === 200 ? 'orange' : 'red'}>{s === 0 ? '网络' : s}</Tag>) },
               { title: '模型', dataIndex: 'models', width: 180, render: (v: string[]) => (v || []).map(m => <Tag key={m}>{m}</Tag>) },
               { title: '消息', dataIndex: 'message', render: (v: string) => <Tooltip title={v}><span className="small-mono">{truncate(v, 160)}</span></Tooltip> },
             ]}
@@ -151,7 +181,13 @@ export default function StressReportView({ aggregate, models, live }: {
             dataSource={live.recent}
             columns={[
               { title: '模型', dataIndex: 'model', width: 170 },
-              { title: '状态', width: 100, render: (_: any, r: any) => <Tag color={r.ok ? 'green' : 'red'}>{r.status === 0 ? '网络' : r.status}</Tag> },
+              {
+                title: '状态', width: 100,
+                render: (_: any, r: any) => {
+                  const color = r.status === 0 ? 'default' : (r.status < 200 || r.status >= 300 ? 'red' : (r.ok ? 'green' : 'orange'))
+                  return <Tag color={color}>{r.status === 0 ? '网络' : r.status}</Tag>
+                },
+              },
               { title: '延迟', width: 90, render: (_: any, r: any) => fmtMs(r.latencyMs) },
               { title: 'TTFT', width: 90, render: (_: any, r: any) => fmtMs(r.ttftMs) },
               { title: 'Token', width: 100, render: (_: any, r: any) => `${r.promptTokens}/${r.completionTokens}` },

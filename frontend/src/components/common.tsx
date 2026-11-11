@@ -69,20 +69,54 @@ export function CopyButton({ text, label }: { text?: string; label?: string }) {
   )
 }
 
+/** Pretty-print plain JSON or an SSE stream (one JSON object per data: line). */
+function prettyBody(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2)
+  } catch {
+    // Fall through to SSE handling.
+  }
+  // The backend stores streaming payloads as newline-delimited JSON (without
+  // the SSE "data:" prefix), and hand-written SSE bodies may keep the prefix.
+  const lines = raw.split(/\r?\n/)
+  const nonEmpty = lines.filter(l => l.trim() !== '').length
+  let parsedCount = 0
+  const out = lines.map(line => {
+    const trimmedLine = line.trim()
+    if (!trimmedLine) return line
+    const m = /^data:\s*(.*)$/.exec(trimmedLine)
+    const payload = m ? m[1] : trimmedLine
+    if (!payload || payload === '[DONE]') return line
+    try {
+      const pretty = JSON.stringify(JSON.parse(payload), null, 2)
+      parsedCount++
+      return m ? 'data: ' + pretty : pretty
+    } catch {
+      return line
+    }
+  })
+  if (parsedCount > 0 && parsedCount >= Math.max(1, nonEmpty * 0.5)) {
+    return out.join('\n')
+  }
+  return raw
+}
+
 export function JsonBlock({ value, title, maxHeight = 420 }: { value: any; title?: string; maxHeight?: number }) {
   let text = ''
   if (typeof value === 'string') {
-    try {
-      text = JSON.stringify(JSON.parse(value), null, 2)
-    } catch {
-      text = value
-    }
+    text = prettyBody(value)
   } else {
     try { text = JSON.stringify(value, null, 2) } catch { text = String(value) }
   }
   return (
     <div className="json-block">
-      {title && <div className="panel-title" style={{ marginBottom: 6 }}>{title}<CopyButton text={text} /></div>}
+      {title ? (
+        <div className="panel-title" style={{ marginBottom: 6 }}>{title}<CopyButton text={text} /></div>
+      ) : (
+        <div className="json-toolbar"><CopyButton text={text} /></div>
+      )}
       <pre style={{ maxHeight }}>{text || '-'}</pre>
     </div>
   )

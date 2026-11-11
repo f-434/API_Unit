@@ -13,8 +13,10 @@ import { CopyButton, EmptyPanel, JsonBlock, VerdictTag } from './common'
 
 function statusTag(it: Item) {
   if (it.status === 0) return <Tag color="default">网络/无响应</Tag>
+  if (it.status < 200 || it.status >= 300) return <Tag color="red">{it.status}</Tag>
   if (it.ok) return <Tag color="green">{it.status}</Tag>
-  return <Tag color="red">{it.status}</Tag>
+  // 2xx but semantically empty/interrupted
+  return <Tag color="orange">{it.status}</Tag>
 }
 
 function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: number; open: boolean; onClose: () => void }) {
@@ -47,7 +49,12 @@ function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: 
             <Descriptions.Item label="成本">{fmtCost(it.cost)}</Descriptions.Item>
             <Descriptions.Item label="尝试次数">{it.attempts}</Descriptions.Item>
             <Descriptions.Item label="结束原因">{it.finishReason || '-'}</Descriptions.Item>
-            <Descriptions.Item label="请求 ID" span={2}><span className="small-mono">{it.requestId || '-'}</span></Descriptions.Item>
+            <Descriptions.Item label="请求 ID" span={2}>
+              <Space size={4}>
+                <span className="small-mono">{it.requestId || '-'}</span>
+                {it.requestId && <CopyButton text={it.requestId} />}
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label="开始时间" span={2}>{fmtTime(it.startedAt)}</Descriptions.Item>
             {it.errorMessage && (
               <Descriptions.Item label="错误" span={2}>
@@ -91,7 +98,17 @@ function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: 
           )}
           <Tabs
             items={[
-              { key: 'out', label: '输出文本', children: <pre className="json-block" style={{ maxHeight: 420, padding: 12, background: '#0f172a', color: '#e2e8f0', borderRadius: 10, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{it.outputText || it.outputPreview || '-'}</pre> },
+              {
+                key: 'out', label: '输出文本',
+                children: (
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+                      <CopyButton text={it.outputText || it.outputPreview || ''} />
+                    </div>
+                    <pre className="json-block" style={{ maxHeight: 420, padding: 12, background: '#0f172a', color: '#e2e8f0', borderRadius: 10, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{it.outputText || it.outputPreview || '-'}</pre>
+                  </div>
+                ),
+              },
               {
                 key: 'req', label: '请求 JSON',
                 children: it.requestJson
