@@ -27,15 +27,46 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#2563eb',
+          colorPrimary: '#165dff',
+          colorInfo: '#165dff',
+          colorLink: '#165dff',
+          colorText: '#1d2129',
+          colorTextSecondary: '#4e5969',
+          colorBorder: '#e5e6eb',
+          colorBorderSecondary: '#f0f1f3',
+          colorBgLayout: '#f5f7fa',
           borderRadius: 8,
           fontSize: 13,
-          colorBgLayout: '#f4f6f8',
         },
         components: {
-          Layout: { siderBg: '#0f172a', headerBg: '#ffffff', bodyBg: '#f4f6f8' },
-          Menu: { darkItemBg: '#0f172a', darkSubMenuItemBg: '#0b1220', darkItemSelectedBg: '#1d4ed8' },
-          Table: { cellPaddingBlockSM: 6, cellPaddingInlineSM: 8 },
+          Layout: {
+            siderBg: '#ffffff',
+            headerBg: '#ffffff',
+            bodyBg: '#f5f7fa',
+            headerHeight: 56,
+            headerPadding: '0 24px',
+          },
+          Menu: {
+            itemBg: 'transparent',
+            itemColor: '#4e5969',
+            itemHoverBg: '#f2f3f5',
+            itemHoverColor: '#1d2129',
+            itemSelectedBg: '#e8f3ff',
+            itemSelectedColor: '#165dff',
+            itemBorderRadius: 8,
+            itemHeight: 40,
+            itemMarginBlock: 4,
+            itemMarginInline: 0,
+          },
+          Table: {
+            headerBg: '#fafbfc',
+            headerColor: '#4e5969',
+            rowHoverBg: '#f7f8fa',
+            borderColor: '#f0f1f3',
+            cellPaddingBlockSM: 7,
+            cellPaddingInlineSM: 10,
+          },
+          Button: { primaryShadow: '0 4px 10px rgba(22, 93, 255, 0.18)' },
         },
       }}
     >
