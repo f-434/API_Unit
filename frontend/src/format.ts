@@ -191,7 +191,7 @@ export const errorTypeLabel = (t?: string) => {
     http: 'HTTP 错误', auth: '鉴权失败', quota: '配额不足', rate_limit: '限流', not_found: '不存在',
     no_channel: '无可用渠道', bad_request: '请求错误', server: '服务端错误', client: '客户端错误',
     timeout: '超时', network: '网络错误', canceled: '已取消', stream: '流中断', parse: '解析失败',
-    protocol: '协议异常', api: 'API 错误', blocked: '被拦截',
+    protocol: '协议异常', api: 'API 错误', blocked: '被拦截', empty: '空响应',
   }
   return (t && map[t]) || t || '-'
 }

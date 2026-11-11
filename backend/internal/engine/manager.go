@@ -133,6 +133,7 @@ func (m *Manager) execute(mod Module, sess *Session, cfg any) {
 			summary.Canceled = base.Canceled
 			summary.SuccessRate = base.SuccessRate
 			summary.QPS = base.QPS
+			summary.RPM = base.RPM
 			summary.ElapsedMs = base.ElapsedMs
 			summary.Cost = base.Cost
 			summary.Planned = base.Planned

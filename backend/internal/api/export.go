@@ -25,13 +25,14 @@ type stressExport struct {
 }
 
 type exportData struct {
-	Run        model.Run
-	Headline   model.RunSummary
-	Created    string
-	Started    string
-	Finished   string
-	Duration   string
-	ConfigJSON string
+	Run         model.Run
+	Headline    model.RunSummary
+	Created     string
+	Started     string
+	Finished    string
+	Duration    string
+	ConfigJSON  string
+	Items       []model.Item
 	Stress      *stressExport
 	Audit       *tokenaudit.Report
 	RequestDiff *requestdiff.Report
@@ -63,18 +64,22 @@ func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request, view *model.RunView) {
 	payload := map[string]any{
-		"run":     view.Run,
-		"summary": view.Summary,
-		"config":  view.Config,
+		"run":        view.Run,
+		"summary":    view.Summary,
+		"config":     view.Config,
 		"exportedAt": model.NowMs(),
 	}
 	if r.URL.Query().Get("items") == "1" {
-		items, err := s.store.ListItemsAll(view.Run.ID, 50000)
+		items, err := s.store.ListItemsAll(view.Run.ID, 50000, false)
 		if err != nil {
 			apiError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		payload["items"] = items
+		details := make([]model.ItemDetail, len(items))
+		for i, it := range items {
+			details[i] = it.Detail()
+		}
+		payload["items"] = details
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="apiunit-%s.json"`, view.Run.ID))
@@ -84,7 +89,7 @@ func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request, view *model.
 }
 
 func (s *Server) exportCSV(w http.ResponseWriter, id string) {
-	items, err := s.store.ListItemsAll(id, 0)
+	items, err := s.store.ListItemsAll(id, 0, false)
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -95,18 +100,20 @@ func (s *Server) exportCSV(w http.ResponseWriter, id string) {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	_ = cw.Write([]string{
-		"id", "model", "target", "case", "category", "verdict", "ok", "status",
+		"id", "index", "model", "target", "case", "category", "verdict", "ok", "status", "finish_reason",
 		"latency_ms", "ttft_ms", "tpot_ms", "prompt_tokens", "completion_tokens",
 		"total_tokens", "cost", "error_type", "error_message", "request_id", "started_at",
+		"output_text", "request_json", "response_json",
 	})
 	for _, it := range items {
 		_ = cw.Write([]string{
-			strconv.FormatInt(it.ID, 10), it.Model, it.TargetName, it.CaseName, it.Category, it.Verdict,
-			strconv.FormatBool(it.OK), strconv.Itoa(it.Status),
+			strconv.FormatInt(it.ID, 10), strconv.Itoa(it.Index), it.Model, it.TargetName, it.CaseName, it.Category, it.Verdict,
+			strconv.FormatBool(it.OK), strconv.Itoa(it.Status), it.FinishReason,
 			fmt.Sprintf("%.2f", it.LatencyMs), fmt.Sprintf("%.2f", it.TTFTMs), fmt.Sprintf("%.2f", it.TPOTMs),
 			strconv.Itoa(it.PromptTokens), strconv.Itoa(it.CompletionTokens), strconv.Itoa(it.TotalTokens),
 			fmt.Sprintf("%.6f", it.Cost), it.ErrorType, it.ErrorMessage, it.RequestID,
 			time.UnixMilli(it.StartedAt).Format(time.RFC3339),
+			it.OutputText, it.RequestJSON, it.ResponseJSON,
 		})
 	}
 }
@@ -119,6 +126,9 @@ func (s *Server) exportHTML(w http.ResponseWriter, view *model.RunView) {
 		Started:  formatMs(view.Run.StartedAt),
 		Finished: formatMs(view.Run.FinishedAt),
 		Duration: durationText(view.Run.DurationMs),
+	}
+	if items, err := s.store.ListItemsAll(view.Run.ID, 50000, false); err == nil {
+		data.Items = items
 	}
 	if view.Config != nil {
 		if b, err := json.MarshalIndent(view.Config, "", "  "); err == nil {
@@ -178,7 +188,7 @@ func durationText(ms int64) string {
 }
 
 var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap{
-	"ms": func(v float64) string { return fmt.Sprintf("%.1f", v) },
+	"ms":  func(v float64) string { return fmt.Sprintf("%.1f", v) },
 	"pct": func(v float64) string { return fmt.Sprintf("%.2f%%", v) },
 	"money": func(v float64) string {
 		if v == 0 {
@@ -281,6 +291,7 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 {{if eq (printf "%s" .Run.Kind) "stress"}}
 <div class="card"><span>成功率</span><b>{{pct .Headline.SuccessRate}}</b></div>
 <div class="card"><span>QPS</span><b>{{ms .Headline.QPS}}</b></div>
+<div class="card"><span>RPM</span><b>{{ms .Headline.RPM}}</b></div>
 {{end}}
 {{if eq (printf "%s" .Run.Kind) "injection"}}
 <div class="card"><span>ASR</span><b class="bad">{{pct .Headline.ASR}}</b></div>
@@ -300,8 +311,8 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 <div class="card"><span>输出速度</span><b>{{ms .Stress.Agg.Tokens.AvgTPS}} tok/s</b></div>
 </div>
 <h3>模型对比</h3>
-<table><tr><th>模型</th><th>协议</th><th class="right">请求</th><th class="right">成功率</th><th class="right">平均延迟</th><th class="right">P95</th><th class="right">TTFT</th><th class="right">QPS</th><th class="right">Prompt</th><th class="right">Completion</th><th class="right">成本</th></tr>
-{{range .Stress.Models}}<tr><td class="mono">{{.Model}}</td><td>{{.Protocol}}</td><td class="right">{{.Total}}</td><td class="right">{{pct .SuccessRate}}</td><td class="right">{{ms .Latency.Avg}}</td><td class="right">{{ms .Latency.P95}}</td><td class="right">{{ms .TTFT.Avg}}</td><td class="right">{{ms .QPS}}</td><td class="right">{{num .Tokens.Prompt}}</td><td class="right">{{num .Tokens.Completion}}</td><td class="right">{{money .Tokens.Cost}}</td></tr>{{end}}
+<table><tr><th>模型</th><th>协议</th><th class="right">请求</th><th class="right">成功率</th><th class="right">平均延迟</th><th class="right">P95</th><th class="right">TTFT</th><th class="right">QPS</th><th class="right">RPM</th><th class="right">Prompt</th><th class="right">Completion</th><th class="right">成本</th></tr>
+{{range .Stress.Models}}<tr><td class="mono">{{.Model}}</td><td>{{.Protocol}}</td><td class="right">{{.Total}}</td><td class="right">{{pct .SuccessRate}}</td><td class="right">{{ms .Latency.Avg}}</td><td class="right">{{ms .Latency.P95}}</td><td class="right">{{ms .TTFT.Avg}}</td><td class="right">{{ms .QPS}}</td><td class="right">{{ms .RPM}}</td><td class="right">{{num .Tokens.Prompt}}</td><td class="right">{{num .Tokens.Completion}}</td><td class="right">{{money .Tokens.Cost}}</td></tr>{{end}}
 </table>
 {{if .Stress.Agg.Errors}}<h3>错误分组</h3>
 <table><tr><th>类型</th><th class="right">次数</th><th>消息</th></tr>
@@ -371,6 +382,24 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 <table><tr><th>用例</th><th>分类</th><th>严重度</th><th class="right">总次数</th><th class="right">成功</th><th class="right">防御</th><th class="right">ASR</th></tr>
 {{range .Injection.Cases}}<tr><td>{{.AttackName}}</td><td>{{.Category}}</td><td>{{severityLabel .Severity}}</td><td class="right">{{.Overall.Total}}</td><td class="right">{{.Overall.Success}}</td><td class="right">{{.Overall.Blocked}}</td><td class="right {{if gt .Overall.Success 0}}bad{{end}}">{{pct .Overall.ASR}}</td></tr>{{end}}</table>
 <ul class="notes">{{range .Injection.Notes}}<li>{{.}}</li>{{end}}</ul>
+</section>
+{{end}}
+
+{{if .Items}}
+<section>
+<h2>请求 / 响应明细</h2>
+<p class="notes">共 {{len .Items}} 条。正文按落库内容展示；若条目提示“已截断”，说明超过了保存上限（请求 8MB / 响应 1MB / 输出 256KB）。</p>
+{{range $i, $it := .Items}}
+<details style="border-bottom:1px solid var(--line);padding:6px 0">
+<summary><b>#{{$it.Index}}</b> <span class="mono">{{$it.Model}}</span> · HTTP {{$it.Status}} · {{if $it.OK}}<span class="ok">成功</span>{{else}}<span class="bad">失败</span>{{end}} · {{ms $it.LatencyMs}} ms{{if $it.FinishReason}} · finish={{$it.FinishReason}}{{end}}{{if index $it.Meta "truncated"}} · <span class="warn">已截断</span>{{end}}</summary>
+<div class="meta" style="margin:6px 0">
+<span>目标: {{$it.TargetName}}</span><span>协议: {{$it.Protocol}}</span><span>输入: {{$it.PromptTokens}}</span><span>输出: {{$it.CompletionTokens}}</span><span>TTFT: {{ms $it.TTFTMs}} ms</span>{{if $it.ErrorMessage}}<span class="bad">错误: {{$it.ErrorType}} {{$it.ErrorMessage}}</span>{{end}}
+</div>
+{{if $it.OutputText}}<h3>输出文本</h3><pre>{{$it.OutputText}}</pre>{{end}}
+{{if $it.RequestJSON}}<h3>请求 JSON</h3><pre>{{$it.RequestJSON}}</pre>{{else}}<p class="warn">未保存请求正文（创建任务时未开启“保存请求/响应正文”）。</p>{{end}}
+{{if $it.ResponseJSON}}<h3>响应 JSON</h3><pre>{{$it.ResponseJSON}}</pre>{{else}}<p class="warn">未保存响应正文（创建任务时未开启“保存请求/响应正文”）。</p>{{end}}
+</details>
+{{end}}
 </section>
 {{end}}
 

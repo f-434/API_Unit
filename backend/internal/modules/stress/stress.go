@@ -32,15 +32,15 @@ type RequestConfig struct {
 }
 
 type LoadConfig struct {
-	Mode         string  `json:"mode"`
-	TotalRequests int    `json:"totalRequests"`
-	Concurrency  int     `json:"concurrency"`
-	DurationSec  int     `json:"durationSec"`
-	RampStart    int     `json:"rampStart"`
-	RampEnd      int     `json:"rampEnd"`
-	RampStep     int     `json:"rampStep"`
-	RampStepSec  int     `json:"rampStepSec"`
-	RPSLimit     float64 `json:"rpsLimit"`
+	Mode          string  `json:"mode"`
+	TotalRequests int     `json:"totalRequests"`
+	Concurrency   int     `json:"concurrency"`
+	DurationSec   int     `json:"durationSec"`
+	RampStart     int     `json:"rampStart"`
+	RampEnd       int     `json:"rampEnd"`
+	RampStep      int     `json:"rampStep"`
+	RampStepSec   int     `json:"rampStepSec"`
+	RPSLimit      float64 `json:"rpsLimit"`
 }
 
 type Config struct {
@@ -212,23 +212,23 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 		}
 		proto := modcommon.NormProtocol(ms.Protocol)
 		return engine.ExecRequest{
-			Target:       target,
-			Model:        ms.Model,
-			Protocol:     proto,
-			Messages:     modcommon.Messages(cfg.Request.SystemPrompt, p.Text),
-			MaxTokens:    cfg.Request.MaxTokens,
-			Temperature:  cfg.Request.Temperature,
-			TopP:         cfg.Request.TopP,
-			Stream:       cfg.Request.Stream,
-			Stop:         cfg.Request.Stop,
-			Seed:         cfg.Request.Seed,
-			Timeout:      time.Duration(cfg.TimeoutMs) * time.Millisecond,
-			Retry:        cfg.Retry,
-			Capture:      cfg.CaptureBodies,
+			Target:            target,
+			Model:             ms.Model,
+			Protocol:          proto,
+			Messages:          modcommon.Messages(cfg.Request.SystemPrompt, p.Text),
+			MaxTokens:         cfg.Request.MaxTokens,
+			Temperature:       cfg.Request.Temperature,
+			TopP:              cfg.Request.TopP,
+			Stream:            cfg.Request.Stream,
+			Stop:              cfg.Request.Stop,
+			Seed:              cfg.Request.Seed,
+			Timeout:           time.Duration(cfg.TimeoutMs) * time.Millisecond,
+			Retry:             cfg.Retry,
+			Capture:           cfg.CaptureBodies,
 			TokenizerStrategy: tokens.Strategy(cfg.TokenizerStrategy),
-			CaseID:       p.ID,
-			CaseName:     p.Name,
-			Meta:         meta,
+			CaseID:            p.ID,
+			CaseName:          p.Name,
+			Meta:              meta,
 		}
 	}
 
@@ -343,6 +343,7 @@ func (m *Module) Summary(sess *engine.Session) model.RunSummary {
 	agg.Canceled = canceled
 	base.Canceled = canceled
 	base.QPS = agg.QPS
+	base.RPM = agg.RPM
 	base.SuccessRate = agg.SuccessRate
 	base.ElapsedMs = agg.ElapsedMs
 	base.Cost = agg.Tokens.Cost

@@ -1,8 +1,13 @@
 package protocol
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,15 +56,15 @@ func TestBuildGeminiRichRequest(t *testing.T) {
 			{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "lookup", Arguments: `{"q":"x"}`}}},
 			{Role: "tool", Name: "lookup", ToolCallID: "c1", Content: `{"result":"ok"}`},
 		},
-		Tools:          []Tool{{Name: "lookup", Description: "look things up", Parameters: map[string]any{"type": "object"}}},
-		ToolChoice:     "lookup",
-		BuiltinTools:   []string{"google_search"},
-		SafetySettings: []SafetySetting{{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"}},
-		CachedContent:  "cachedContents/abc",
-		MaxTokens:      128,
-		Temperature:    &temp,
-		TopK:           &topK,
-		ThinkingBudget: &budget,
+		Tools:           []Tool{{Name: "lookup", Description: "look things up", Parameters: map[string]any{"type": "object"}}},
+		ToolChoice:      "lookup",
+		BuiltinTools:    []string{"google_search"},
+		SafetySettings:  []SafetySetting{{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"}},
+		CachedContent:   "cachedContents/abc",
+		MaxTokens:       128,
+		Temperature:     &temp,
+		TopK:            &topK,
+		ThinkingBudget:  &budget,
 		ExtraGeneration: map[string]any{"foo": "bar"},
 		ExtraBody:       map[string]any{"metadata": map[string]any{"trace": "t1"}},
 	}
@@ -153,6 +158,190 @@ func TestParseAPIError(t *testing.T) {
 	msg, code = ParseAPIError([]byte(`<html><body>bad gateway</body></html>`))
 	if msg != "bad gateway" || code != "" {
 		t.Errorf("html strip got %q %q", msg, code)
+	}
+}
+
+func TestStreamSuccessRequiresContentAndTerminal(t *testing.T) {
+	cases := []struct {
+		name     string
+		protocol model.Protocol
+		stream   string
+		wantOK   bool
+		wantCode string
+	}{
+		{
+			name:     "usage only with done is empty",
+			protocol: model.ProtocolOpenAI,
+			stream:   "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":0}}\n\ndata: [DONE]\n\n",
+			wantOK:   false,
+			wantCode: "empty",
+		},
+		{
+			name:     "text but no terminal marker is interrupted",
+			protocol: model.ProtocolOpenAI,
+			stream:   "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",
+			wantOK:   false,
+			wantCode: "stream",
+		},
+		{
+			name:     "text with finish reason is ok",
+			protocol: model.ProtocolOpenAI,
+			stream:   "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\n",
+			wantOK:   true,
+		},
+		{
+			name:     "garbage chunk without content is not a payload",
+			protocol: model.ProtocolOpenAI,
+			stream:   "data: 当前分组上游负载已饱和\n\n",
+			wantOK:   false,
+			wantCode: "protocol",
+		},
+		{
+			name:     "claude without message_stop is interrupted",
+			protocol: model.ProtocolClaude,
+			stream:   "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n",
+			wantOK:   false,
+			wantCode: "stream",
+		},
+		{
+			name:     "gemini empty candidate is empty",
+			protocol: model.ProtocolGemini,
+			stream:   "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"MAX_TOKENS\"}],\"usageMetadata\":{\"promptTokenCount\":8}}\n\n",
+			wantOK:   false,
+			wantCode: "empty",
+		},
+		{
+			name:     "gemini text with finish reason is ok",
+			protocol: model.ProtocolGemini,
+			stream:   "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]},\"finishReason\":\"STOP\"}]}\n\n",
+			wantOK:   true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out := &Outcome{}
+			has, err := parseStream(c.protocol, strings.NewReader(c.stream), out, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ok := finalizeStream(out, has)
+			if ok != c.wantOK {
+				t.Fatalf("ok=%v want %v (out=%+v)", ok, c.wantOK, out)
+			}
+			if c.wantCode != "" && out.ErrorCode != c.wantCode {
+				t.Errorf("code=%q want %q (%s)", out.ErrorCode, c.wantCode, out.ErrorMessage)
+			}
+		})
+	}
+}
+
+func TestJSONSuccessRequiresContent(t *testing.T) {
+	out := &Outcome{}
+	body := `{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}],"usageMetadata":{"promptTokenCount":8,"totalTokenCount":8}}`
+	has, err := parseJSONPayload(model.ProtocolGemini, []byte(body), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalizeJSON(out, has) {
+		t.Fatalf("empty candidates must fail: %+v", out)
+	}
+	if out.ErrorCode != "empty" {
+		t.Errorf("code=%q want empty", out.ErrorCode)
+	}
+
+	out = &Outcome{}
+	body = `{"error":{"message":"no channel","code":"model_not_found"}}`
+	has, err = parseJSONPayload(model.ProtocolGemini, []byte(body), out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalizeJSON(out, has) {
+		t.Fatalf("error object must fail: %+v", out)
+	}
+}
+
+func TestFetchModelsRetriesTransient(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&hits, 1) < 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"busy","code":"server_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-test","owned_by":"mock"}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClientWithOptions(ClientOptions{
+		DialTimeout:           time.Second,
+		TLSHandshakeTimeout:   time.Second,
+		ResponseHeaderTimeout: time.Second,
+		DiscoverTimeout:       2 * time.Second,
+		DiscoverRetries:       2,
+	})
+	models, err := c.fetchModelsWithRetry(context.Background(), discoverAttempt{
+		protocol: model.ProtocolOpenAI,
+		label:    "test",
+		url:      srv.URL + "/v1/models",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].ID != "gpt-test" {
+		t.Fatalf("unexpected models: %+v", models)
+	}
+	if got := atomic.LoadInt32(&hits); got != 3 {
+		t.Fatalf("hits=%d want 3", got)
+	}
+}
+
+func TestFetchModelsDoesNotRetryAuthFailure(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad key","code":"invalid_api_key"}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClientWithOptions(ClientOptions{DiscoverTimeout: 2 * time.Second, DiscoverRetries: 3})
+	_, err := c.fetchModelsWithRetry(context.Background(), discoverAttempt{
+		protocol: model.ProtocolOpenAI,
+		label:    "test",
+		url:      srv.URL + "/v1/models",
+	})
+	if err == nil {
+		t.Fatal("expected auth error")
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Fatalf("hits=%d want 1", got)
+	}
+	var se *httpStatusError
+	if !errors.As(err, &se) || se.Status != http.StatusUnauthorized {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDiscoveryNetworkHelpers(t *testing.T) {
+	tlsErr := errors.New(`Get "https://example.com/v1/models": net/http: TLS handshake timeout`)
+	if !isNetworkErr(tlsErr) {
+		t.Fatal("TLS handshake timeout should be treated as a network error")
+	}
+	if !isTransientDiscoveryErr(tlsErr) {
+		t.Fatal("TLS handshake timeout should be retryable")
+	}
+	authErr := &httpStatusError{Status: 401, Code: "invalid_api_key", Message: "bad key"}
+	if isNetworkErr(authErr) || isTransientDiscoveryErr(authErr) {
+		t.Fatal("auth errors must not be retried")
+	}
+	if networkHint([]string{"OpenAI /v1/models：" + tlsErr.Error()}) == "" {
+		t.Fatal("expected a network hint")
+	}
+	if networkHint([]string{"OpenAI /v1/models：HTTP 401 invalid_api_key"}) != "" {
+		t.Fatal("did not expect a network hint for auth errors")
 	}
 }
 

@@ -30,6 +30,7 @@ function RunningOverview({ live }: { live?: Live }) {
         <Kpi label="失败" value={fmtInt(live.failed)} color={live.failed ? '#dc2626' : undefined} />
         <Kpi label="成功率" value={fmtPct(live.successRate)} />
         <Kpi label="QPS" value={(live.qps || 0).toFixed(2)} />
+        <Kpi label="RPM" value={(live.rpm || 0).toFixed(2)} />
         <Kpi label="实际并发" value={fmtInt(live.activeConcurrency)} />
         <Kpi label="当前模型" value={live.currentModel || '-'} />
         <Kpi label="耗时" value={fmtDuration(live.elapsedMs)} />
@@ -162,6 +163,7 @@ export default function RunDetail() {
       ) : (
         <Kpi label="QPS" value={((summary?.qps ?? live?.qps) || 0).toFixed(2)} />
       )}
+      {kind === 'stress' && <Kpi label="RPM" value={((summary?.rpm ?? live?.rpm) || 0).toFixed(2)} />}
       <Kpi label="耗时" value={fmtDuration(summary?.elapsedMs ?? live?.elapsedMs)} />
       <Kpi label="成本" value={fmtCost(summary?.cost)} />
     </div>

@@ -9,6 +9,9 @@ import type { Target } from '../types'
 import { PageHeader, ProtocolTag, CopyButton } from '../components/common'
 import { fmtTime } from '../format'
 
+const NETWORK_ISSUE_RE = /tls handshake timeout|i\/o timeout|connection timed out|connection reset|network is unreachable/i
+const hasNetworkIssue = (r: any) => NETWORK_ISSUE_RE.test(JSON.stringify(r || {}))
+
 export default function Targets() {
   const qc = useQueryClient()
   const { data: targets = [], isLoading } = useQuery({ queryKey: ['targets'], queryFn: api.targets, select: d => d.items })
@@ -68,7 +71,7 @@ export default function Targets() {
       qc.invalidateQueries({ queryKey: ['targets'] })
       qc.invalidateQueries({ queryKey: ['models'] })
     },
-    onError: (e: any) => message.error(e?.message || '获取模型失败'),
+    onError: (e: any) => message.error(e?.message || '获取模型失败', 8),
   })
 
   const testConnection = async () => {
@@ -199,6 +202,11 @@ export default function Targets() {
                 <div>
                   {testResult.endpoint && <div className="muted">端点：{testResult.endpoint}</div>}
                   {!!testResult.warnings?.length && <div className="muted">尝试提示：{testResult.warnings.join('；')}</div>}
+                  {!testResult.ok && hasNetworkIssue(testResult) && (
+                    <div style={{ marginTop: 8 }}>
+                      <b>网络诊断：</b>到该地址的 TLS 握手超时。建议更换网络或开启代理，并在启动服务前设置 <code>HTTPS_PROXY</code> / <code>HTTP_PROXY</code>；也可调大 <code>HTTP_TLS_TIMEOUT_SEC</code>、<code>DISCOVER_TIMEOUT_SEC</code>、<code>DISCOVER_TOTAL_TIMEOUT_SEC</code>、<code>DISCOVER_RETRIES</code>。
+                    </div>
+                  )}
                   {!!testResult.models?.length && (
                     <div style={{ marginTop: 6, maxHeight: 120, overflow: 'auto' }}>
                       {testResult.models.slice(0, 40).map((m: any) => <Tag key={m.id}>{m.id}</Tag>)}

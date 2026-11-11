@@ -131,7 +131,7 @@ type Price struct {
 // Run is the persisted run header. Config and Summary are opaque JSON blobs.
 type Run struct {
 	ID         string    `json:"id"`
-	Kind       RunKind  `json:"kind"`
+	Kind       RunKind   `json:"kind"`
 	Status     RunStatus `json:"status"`
 	Config     string    `json:"-"`
 	Summary    string    `json:"-"`
@@ -152,6 +152,7 @@ type RunSummary struct {
 	Canceled    int64    `json:"canceled"`
 	SuccessRate float64  `json:"successRate"`
 	QPS         float64  `json:"qps"`
+	RPM         float64  `json:"rpm"`
 	ASR         float64  `json:"asr,omitempty"`
 	ElapsedMs   float64  `json:"elapsedMs"`
 	Cost        float64  `json:"cost,omitempty"`
@@ -160,7 +161,7 @@ type RunSummary struct {
 }
 
 type JudgeVerdict struct {
-	Method   string  `json:"method"` // rule | llm | hybrid
+	Method   string  `json:"method"`  // rule | llm | hybrid
 	Verdict  string  `json:"verdict"` // success | blocked | unclear | error
 	Score    float64 `json:"score"`
 	Reason   string  `json:"reason"`
@@ -172,10 +173,10 @@ type JudgeVerdict struct {
 }
 
 type CheckResult struct {
-	Check     Check  `json:"check"`
-	Matched   bool   `json:"matched"`
-	Evidence  string `json:"evidence,omitempty"`
-	Decisive  bool   `json:"decisive"`
+	Check    Check  `json:"check"`
+	Matched  bool   `json:"matched"`
+	Evidence string `json:"evidence,omitempty"`
+	Decisive bool   `json:"decisive"`
 }
 
 // Item is one logical request. Streaming retries are folded into Attempts.
@@ -205,15 +206,15 @@ type Item struct {
 	Status int  `json:"status"`
 	OK     bool `json:"ok"`
 
-	PromptTokens     int    `json:"promptTokens"`
-	CompletionTokens int    `json:"completionTokens"`
-	TotalTokens      int    `json:"totalTokens"`
-	CachedTokens     int    `json:"cachedTokens"`
-	CacheWriteTokens int    `json:"cacheWriteTokens"`
-	ReasoningTokens  int    `json:"reasoningTokens"`
-	LocalPromptTokens int   `json:"localPromptTokens,omitempty"`
-	TokenSource      string `json:"tokenSource"` // usage | mixed | estimated | none
-	Cost             float64 `json:"cost"`
+	PromptTokens      int     `json:"promptTokens"`
+	CompletionTokens  int     `json:"completionTokens"`
+	TotalTokens       int     `json:"totalTokens"`
+	CachedTokens      int     `json:"cachedTokens"`
+	CacheWriteTokens  int     `json:"cacheWriteTokens"`
+	ReasoningTokens   int     `json:"reasoningTokens"`
+	LocalPromptTokens int     `json:"localPromptTokens,omitempty"`
+	TokenSource       string  `json:"tokenSource"` // usage | mixed | estimated | none
+	Cost              float64 `json:"cost"`
 
 	ErrorType    string `json:"errorType,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
@@ -276,12 +277,12 @@ type StatusCount struct {
 }
 
 type ErrorGroup struct {
-	Type     string   `json:"type"`
-	Message  string   `json:"message"`
-	Count    int64    `json:"count"`
-	Statuses []int    `json:"statuses,omitempty"`
-	Models   []string `json:"models,omitempty"`
-	FirstAtMs float64 `json:"firstAtMs,omitempty"`
+	Type      string   `json:"type"`
+	Message   string   `json:"message"`
+	Count     int64    `json:"count"`
+	Statuses  []int    `json:"statuses,omitempty"`
+	Models    []string `json:"models,omitempty"`
+	FirstAtMs float64  `json:"firstAtMs,omitempty"`
 }
 
 type SeriesPoint struct {
@@ -296,10 +297,10 @@ type SeriesPoint struct {
 }
 
 type HistBucket struct {
-	Label string `json:"label"`
+	Label string  `json:"label"`
 	From  float64 `json:"from"`
 	To    float64 `json:"to"`
-	Count int64  `json:"count"`
+	Count int64   `json:"count"`
 }
 
 type Aggregate struct {
@@ -310,6 +311,7 @@ type Aggregate struct {
 	SuccessRate float64       `json:"successRate"`
 	ErrorRate   float64       `json:"errorRate"`
 	QPS         float64       `json:"qps"`
+	RPM         float64       `json:"rpm"`
 	ElapsedMs   float64       `json:"elapsedMs"`
 	Latency     Stats         `json:"latency"`
 	TTFT        Stats         `json:"ttft"`
@@ -331,16 +333,17 @@ type ModelAggregate struct {
 }
 
 type ModelLive struct {
-	Model       string `json:"model"`
-	TargetName  string `json:"targetName,omitempty"`
-	Protocol    string `json:"protocol"`
-	Completed   int64  `json:"completed"`
-	Success     int64  `json:"success"`
-	Failed      int64  `json:"failed"`
-	Active      int    `json:"active"`
+	Model       string  `json:"model"`
+	TargetName  string  `json:"targetName,omitempty"`
+	Protocol    string  `json:"protocol"`
+	Completed   int64   `json:"completed"`
+	Success     int64   `json:"success"`
+	Failed      int64   `json:"failed"`
+	Active      int     `json:"active"`
 	AvgLatency  float64 `json:"avgLatencyMs"`
 	TTFT        float64 `json:"ttftMs"`
 	QPS         float64 `json:"qps"`
+	RPM         float64 `json:"rpm"`
 	SuccessRate float64 `json:"successRate"`
 }
 
@@ -358,6 +361,7 @@ type Live struct {
 	Canceled          int64          `json:"canceled"`
 	SuccessRate       float64        `json:"successRate"`
 	QPS               float64        `json:"qps"`
+	RPM               float64        `json:"rpm"`
 	ActiveConcurrency int            `json:"activeConcurrency"`
 	CurrentModel      string         `json:"currentModel,omitempty"`
 	Latency           Stats          `json:"latency"`
@@ -437,12 +441,12 @@ func (s Snapshot) Detail() SnapshotDetail {
 }
 
 type RunView struct {
-	Run     Run             `json:"run"`
-	Summary RunSummary      `json:"summary"`
-	Live    *Live           `json:"live,omitempty"`
-	Config  any             `json:"config,omitempty"`
-	Data    any             `json:"data,omitempty"`
-	Playbook []RunPlaybook  `json:"playbook,omitempty"`
+	Run      Run           `json:"run"`
+	Summary  RunSummary    `json:"summary"`
+	Live     *Live         `json:"live,omitempty"`
+	Config   any           `json:"config,omitempty"`
+	Data     any           `json:"data,omitempty"`
+	Playbook []RunPlaybook `json:"playbook,omitempty"`
 }
 
 type RunPlaybook struct {

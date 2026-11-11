@@ -193,8 +193,9 @@ func mimeForPart(t string) string {
 }
 
 type geminiPart struct {
-	Text    string `json:"text"`
-	Thought bool   `json:"thought"`
+	Text         string          `json:"text"`
+	Thought      bool            `json:"thought"`
+	FunctionCall json.RawMessage `json:"functionCall"`
 }
 
 type geminiUsage struct {
@@ -216,9 +217,9 @@ func (u *geminiUsage) normalize() Usage {
 	}
 	return Usage{
 		Prompt: u.PromptTokenCount, Completion: comp, Total: total,
-		Cached: u.CachedContentTokenCount,
+		Cached:    u.CachedContentTokenCount,
 		Reasoning: u.ThoughtsTokenCount,
-		Reported: true, PromptKnown: u.PromptTokenCount > 0, CompKnown: comp > 0,
+		Reported:  true, PromptKnown: u.PromptTokenCount > 0, CompKnown: comp > 0,
 	}
 }
 
@@ -236,9 +237,9 @@ type geminiResponse struct {
 		BlockReason string `json:"blockReason"`
 	} `json:"promptFeedback"`
 	Error *struct {
-		Code    int    `json:"code"`
-		Message string `json:"message"`
-		Status  string `json:"status"`
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+		Status  string          `json:"status"`
 	} `json:"error"`
 }
 
@@ -247,6 +248,9 @@ func (r *geminiResponse) consume(out *Outcome, start time.Time, streaming bool) 
 	if r.Error != nil && r.Error.Message != "" {
 		out.ErrorMessage = r.Error.Message
 		out.ErrorCode = r.Error.Status
+		if out.ErrorCode == "" {
+			out.ErrorCode = rawString(r.Error.Code)
+		}
 		return false
 	}
 	if r.PromptFeedback != nil && r.PromptFeedback.BlockReason != "" {
@@ -267,20 +271,24 @@ func (r *geminiResponse) consume(out *Outcome, start time.Time, streaming bool) 
 	for _, c := range r.Candidates {
 		hasPayload = true
 		for _, p := range c.Content.Parts {
-			if p.Text == "" {
-				continue
+			if p.Text != "" {
+				if p.Thought {
+					out.Reasoning += p.Text
+				} else {
+					out.Text += p.Text
+				}
+				out.HasContent = true
+				if streaming {
+					noteToken(out, start, len(p.Text))
+				}
 			}
-			if p.Thought {
-				out.Reasoning += p.Text
-			} else {
-				out.Text += p.Text
-			}
-			if streaming {
-				noteToken(out, start, len(p.Text))
+			if rawPresent(p.FunctionCall) {
+				out.HasContent = true
 			}
 		}
 		if c.FinishReason != "" {
 			out.FinishReason = c.FinishReason
+			out.Terminal = true
 		}
 	}
 	return hasPayload
@@ -312,7 +320,7 @@ func parseGeminiStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 		var chunk geminiResponse
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			out.ChunkCount++
-			hasPayload = true
+			out.Malformed++
 			return nil
 		}
 		out.ChunkCount++

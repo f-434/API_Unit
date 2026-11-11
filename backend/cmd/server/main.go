@@ -49,7 +49,14 @@ func main() {
 		log.Printf("seed attacks: %v", err)
 	}
 
-	client := protocol.NewClient()
+	client := protocol.NewClientWithOptions(protocol.ClientOptions{
+		DialTimeout:           cfg.HTTPDialTimeout,
+		TLSHandshakeTimeout:   cfg.HTTPTLSHandshakeTimeout,
+		ResponseHeaderTimeout: cfg.HTTPResponseHeaderTimeout,
+		DiscoverTimeout:       cfg.DiscoverTimeout,
+		DiscoverTotalTimeout:  cfg.DiscoverTotalTimeout,
+		DiscoverRetries:       cfg.DiscoverRetries,
+	})
 	counter := tokens.New(cfg.TokenizerDir, cfg.Offline)
 	manager := engine.NewManager(st, client, counter, cfg.MaxConcurrentRuns)
 	manager.Register(stress.New(st))

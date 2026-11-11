@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 // SSEEvent is one dispatched server-sent event.
@@ -77,6 +78,9 @@ func (c *capture) Add(s string) {
 	}
 	if c.b.Len()+len(s) > c.limit {
 		allow := c.limit - c.b.Len()
+		for allow > 0 && !utf8.RuneStart(s[allow]) {
+			allow--
+		}
 		if allow > 0 {
 			c.b.WriteString(s[:allow])
 		}

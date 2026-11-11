@@ -113,6 +113,7 @@ export interface Aggregate {
   successRate: number
   errorRate: number
   qps: number
+  rpm: number
   elapsedMs: number
   latency: Stats
   ttft: Stats
@@ -137,6 +138,7 @@ export interface ModelAggregate {
   successRate: number
   errorRate: number
   qps: number
+  rpm: number
   latency: Stats
   ttft: Stats
   tpot: Stats
@@ -157,6 +159,7 @@ export interface ModelLive {
   avgLatencyMs: number
   ttftMs: number
   qps: number
+  rpm: number
   successRate: number
 }
 
@@ -240,6 +243,7 @@ export interface Live {
   canceled: number
   successRate: number
   qps: number
+  rpm: number
   activeConcurrency: number
   currentModel?: string
   latency: Stats
@@ -264,6 +268,7 @@ export interface RunSummary {
   canceled: number
   successRate: number
   qps: number
+  rpm: number
   asr?: number
   elapsedMs: number
   cost?: number

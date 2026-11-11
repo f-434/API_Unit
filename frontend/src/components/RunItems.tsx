@@ -80,11 +80,30 @@ function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: 
               />
             </div>
           )}
+          {it.meta?.truncated && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 10 }}
+              message="正文已截断"
+              description="保存上限：请求 8MB / 响应 1MB / 输出文本 256KB。超过上限的部分不会写入数据库。"
+            />
+          )}
           <Tabs
             items={[
               { key: 'out', label: '输出文本', children: <pre className="json-block" style={{ maxHeight: 420, padding: 12, background: '#0f172a', color: '#e2e8f0', borderRadius: 10, overflow: 'auto', whiteSpace: 'pre-wrap' }}>{it.outputText || it.outputPreview || '-'}</pre> },
-              { key: 'req', label: '请求 JSON', children: <JsonBlock value={it.requestJson} maxHeight={440} /> },
-              { key: 'resp', label: '响应 JSON', children: <JsonBlock value={it.responseJson} maxHeight={440} /> },
+              {
+                key: 'req', label: '请求 JSON',
+                children: it.requestJson
+                  ? <JsonBlock value={it.requestJson} maxHeight={440} />
+                  : <Alert type="info" showIcon message="未捕获请求正文" description="创建任务时需开启“保存请求/响应正文”。" />,
+              },
+              {
+                key: 'resp', label: '响应 JSON',
+                children: it.responseJson
+                  ? <JsonBlock value={it.responseJson} maxHeight={440} />
+                  : <Alert type="info" showIcon message="未捕获响应正文" description="创建任务时需开启“保存请求/响应正文”；流式响应最多保留 1MB 原文。" />,
+              },
               { key: 'meta', label: 'Meta', children: <JsonBlock value={it.meta || {}} maxHeight={440} /> },
             ]}
           />

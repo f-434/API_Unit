@@ -89,14 +89,14 @@ type liveState struct {
 
 	started time.Time
 
-	planned   int64
-	canceled  int64
-	completed int64
-	success   int64
-	failed    int64
-	active    int64
+	planned    int64
+	canceled   int64
+	completed  int64
+	success    int64
+	failed     int64
+	active     int64
 	lastActive int64
-	err       string
+	err        string
 
 	currentModel string
 	models       map[string]*modelState
@@ -107,7 +107,7 @@ type liveState struct {
 	series        map[int]*seriesAcc
 	activeSamples map[int]*activeAcc
 
-	extra   map[string]any
+	extra      map[string]any
 	latencySam []float64
 	ttftSam    []float64
 	tpotSam    []float64
@@ -352,6 +352,7 @@ func (l *liveState) snapshot(final bool) model.Live {
 		Canceled:          l.canceled,
 		SuccessRate:       pct(l.success, total),
 		QPS:               perSecond(l.success, elapsed),
+		RPM:               perMinute(l.success, elapsed),
 		ActiveConcurrency: int(l.lastActive),
 		CurrentModel:      l.currentModel,
 		StatusCodes:       statusCodes(l.totalStatus()),
@@ -468,6 +469,9 @@ func (l *liveState) modelLives(elapsed time.Duration) []model.ModelLive {
 		if !ms.first.IsZero() && !ms.last.IsZero() {
 			d = ms.last.Sub(ms.first)
 		}
+		if d <= 0 {
+			d = elapsed
+		}
 		ml := model.ModelLive{
 			Model:       ms.model,
 			TargetName:  ms.targetName,
@@ -477,6 +481,7 @@ func (l *liveState) modelLives(elapsed time.Duration) []model.ModelLive {
 			Failed:      ms.failed,
 			SuccessRate: pct(ms.success, ms.completed),
 			QPS:         perSecond(ms.success, d),
+			RPM:         perMinute(ms.success, d),
 		}
 		if ms.success > 0 && len(ms.latenciesSam) > 0 {
 			ml.AvgLatency = sum(ms.latenciesSam) / float64(len(ms.latenciesSam))
@@ -584,6 +589,7 @@ func (l *liveState) finalAggregate(elapsedMs float64) (model.Aggregate, []model.
 		SuccessRate: pct(l.success, l.completed),
 		ErrorRate:   pct(l.failed, l.completed),
 		QPS:         perSecond(l.success, time.Duration(elapsedMs)*time.Millisecond),
+		RPM:         perMinute(l.success, time.Duration(elapsedMs)*time.Millisecond),
 		ElapsedMs:   elapsedMs,
 		Latency:     statsOf(l.latencies()),
 		TTFT:        statsOf(l.ttftsFor(true)),
@@ -626,7 +632,11 @@ func (l *liveState) finalAggregate(elapsedMs float64) (model.Aggregate, []model.
 		if !ms.first.IsZero() && !ms.last.IsZero() {
 			d = ms.last.Sub(ms.first)
 		}
+		if d <= 0 {
+			d = time.Duration(elapsedMs) * time.Millisecond
+		}
 		m.QPS = perSecond(ms.success, d)
+		m.RPM = perMinute(ms.success, d)
 		if ms.completed > 0 {
 			m.Tokens.AvgCompletion = float64(ms.completion) / float64(ms.completed)
 		}
@@ -655,6 +665,7 @@ func (l *liveState) headline(elapsedMs float64) model.RunSummary {
 		Canceled:    l.canceled,
 		SuccessRate: pct(l.success, l.completed),
 		QPS:         perSecond(l.success, time.Duration(elapsedMs)*time.Millisecond),
+		RPM:         perMinute(l.success, time.Duration(elapsedMs)*time.Millisecond),
 		ElapsedMs:   elapsedMs,
 		Cost:        cost,
 		Models:      models,
@@ -804,6 +815,13 @@ func perSecond(n int64, d time.Duration) float64 {
 		return 0
 	}
 	return float64(n) / d.Seconds()
+}
+
+func perMinute(n int64, d time.Duration) float64 {
+	if d <= 0 {
+		return 0
+	}
+	return float64(n) / d.Minutes()
 }
 
 func sum(v []float64) float64 {

@@ -63,15 +63,15 @@ type SafetySetting struct {
 }
 
 type ChatRequest struct {
-	Model       string     `json:"model"`
+	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
-	MaxTokens   int        `json:"maxTokens,omitempty"`
-	Temperature *float64   `json:"temperature,omitempty"`
-	TopP        *float64   `json:"topP,omitempty"`
-	TopK        *int       `json:"topK,omitempty"`
-	Stream      bool       `json:"stream,omitempty"`
-	Stop        []string   `json:"stop,omitempty"`
-	Seed        *int       `json:"seed,omitempty"`
+	MaxTokens   int           `json:"maxTokens,omitempty"`
+	Temperature *float64      `json:"temperature,omitempty"`
+	TopP        *float64      `json:"topP,omitempty"`
+	TopK        *int          `json:"topK,omitempty"`
+	Stream      bool          `json:"stream,omitempty"`
+	Stop        []string      `json:"stop,omitempty"`
+	Seed        *int          `json:"seed,omitempty"`
 
 	CandidateCount   *int           `json:"candidateCount,omitempty"`
 	ResponseMimeType string         `json:"responseMimeType,omitempty"`
@@ -163,6 +163,17 @@ type Outcome struct {
 	StreamError   bool
 	Truncated     bool
 	TextBytes     int
+
+	// HasContent is true once the parser saw real model output (text,
+	// reasoning or a tool call). Usage-only or structurally empty responses
+	// leave it false so the caller can classify them as failures.
+	HasContent bool
+	// Terminal is true when a stream carried a normal terminal signal
+	// ([DONE] / message_stop / a candidate finishReason). Streams that end
+	// without one are treated as interrupted.
+	Terminal bool
+	// Malformed counts SSE data chunks that were not valid protocol JSON.
+	Malformed int
 
 	firstTokenAt time.Time
 	lastTokenAt  time.Time
@@ -313,6 +324,29 @@ func ContextError(ctx context.Context) error {
 
 func ElapsedMs(start time.Time) float64 {
 	return float64(time.Since(start).Microseconds()) / 1000.0
+}
+
+// rawPresent reports whether a raw JSON field carries a meaningful value.
+func rawPresent(raw json.RawMessage) bool {
+	s := strings.TrimSpace(string(raw))
+	return s != "" && s != "null" && s != "[]" && s != "{}"
+}
+
+// rawString decodes a raw JSON field that may be a string or number.
+func rawString(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" {
+		return ""
+	}
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return str
+	}
+	var num json.Number
+	if json.Unmarshal(raw, &num) == nil {
+		return num.String()
+	}
+	return strings.Trim(s, `"`)
 }
 
 var _ = json.Marshal

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/time/rate"
 
@@ -21,36 +22,36 @@ import (
 )
 
 const (
-	maxTextCapture   = 64 << 10
+	maxTextCapture    = 256 << 10
 	maxRequestCapture = 8 << 20
-	maxBodyCapture   = 256 << 10
-	itemChannelCap = 4096
-	batchSize      = 300
+	maxBodyCapture    = 1 << 20
+	itemChannelCap    = 4096
+	batchSize         = 300
 )
 
 type RetryPolicy struct {
-	MaxRetries    int  `json:"maxRetries"`
-	BackoffMs     int  `json:"backoffMs"`
-	MaxBackoffMs  int  `json:"maxBackoffMs"`
-	RetryOn429    bool `json:"retryOn429"`
-	RetryOn5xx    bool `json:"retryOn5xx"`
+	MaxRetries     int  `json:"maxRetries"`
+	BackoffMs      int  `json:"backoffMs"`
+	MaxBackoffMs   int  `json:"maxBackoffMs"`
+	RetryOn429     bool `json:"retryOn429"`
+	RetryOn5xx     bool `json:"retryOn5xx"`
 	RetryOnNetwork bool `json:"retryOnNetwork"`
 }
 
 type ExecRequest struct {
-	Target    protocol.TargetInfo
-	Model     string
-	Protocol  model.Protocol
-	Messages  []protocol.ChatMessage
-	MaxTokens int
+	Target      protocol.TargetInfo
+	Model       string
+	Protocol    model.Protocol
+	Messages    []protocol.ChatMessage
+	MaxTokens   int
 	Temperature *float64
-	TopP      *float64
-	Stream    bool
-	Stop      []string
-	Seed      *int
-	Timeout   time.Duration
-	Retry     RetryPolicy
-	Capture   bool
+	TopP        *float64
+	Stream      bool
+	Stop        []string
+	Seed        *int
+	Timeout     time.Duration
+	Retry       RetryPolicy
+	Capture     bool
 
 	TokenizerStrategy tokens.Strategy
 	LocalPrompt       bool
@@ -79,8 +80,8 @@ type Session struct {
 	client  *protocol.Client
 	counter *tokens.Counter
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx     context.Context
+	cancel  context.CancelFunc
 	started time.Time
 
 	live *liveState
@@ -109,16 +110,16 @@ type Session struct {
 func NewSession(runID string, kind model.RunKind, st *store.Store, client *protocol.Client, counter *tokens.Counter, prices []model.Price) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{
-		RunID:     runID,
-		Kind:      kind,
-		store:     st,
-		client:    client,
-		counter:   counter,
-		ctx:       ctx,
-		cancel:    cancel,
-		started:   time.Now(),
-		live:      newLiveState(runID, string(kind)),
-		hub:       newHub(),
+		RunID:      runID,
+		Kind:       kind,
+		store:      st,
+		client:     client,
+		counter:    counter,
+		ctx:        ctx,
+		cancel:     cancel,
+		started:    time.Now(),
+		live:       newLiveState(runID, string(kind)),
+		hub:        newHub(),
 		itemCh:     make(chan model.Item, itemChannelCap),
 		writerDone: make(chan struct{}),
 		pumpStop:   make(chan struct{}),
@@ -163,10 +164,10 @@ func (s *Session) waitLimit(ctx context.Context) error {
 	return lim.Wait(ctx)
 }
 
-func (s *Session) SetPlanned(n int64)    { s.live.setPlanned(n) }
-func (s *Session) AddPlanned(n int64)    { s.live.mu.Lock(); s.live.planned += n; s.live.mu.Unlock() }
-func (s *Session) SetPhase(p string)     { s.live.setPhase(p) }
-func (s *Session) SetCurrentModel(m string) { s.live.setCurrentModel(m) }
+func (s *Session) SetPlanned(n int64)               { s.live.setPlanned(n) }
+func (s *Session) AddPlanned(n int64)               { s.live.mu.Lock(); s.live.planned += n; s.live.mu.Unlock() }
+func (s *Session) SetPhase(p string)                { s.live.setPhase(p) }
+func (s *Session) SetCurrentModel(m string)         { s.live.setCurrentModel(m) }
 func (s *Session) AddExtra(key string, delta int64) { s.live.addExtra(key, delta) }
 func (s *Session) SetExtra(key string, v any)       { s.live.setExtra(key, v) }
 func (s *Session) GetExtra(key string) any {
@@ -174,7 +175,7 @@ func (s *Session) GetExtra(key string) any {
 	defer s.live.mu.Unlock()
 	return s.live.extra[key]
 }
-func (s *Session) AddCanceled(n int64)   { s.live.addCanceled(n) }
+func (s *Session) AddCanceled(n int64) { s.live.addCanceled(n) }
 func (s *Session) Stop() {
 	s.stopFlag.Store(true)
 	s.cancel()
@@ -429,7 +430,7 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 		RunID: s.RunID, Index: index, Attempts: attempts,
 		TargetID: target.ID, TargetName: target.Name, Model: req.Model,
 		Protocol: string(resolveProtocolName(target, req)),
-		CaseID: req.CaseID, CaseName: req.CaseName, Category: req.Category, Severity: req.Severity,
+		CaseID:   req.CaseID, CaseName: req.CaseName, Category: req.Category, Severity: req.Severity,
 		Repetition: req.Repetition, StartedAt: startedAt, StartOffsetMs: startOffset,
 		Meta: copyMeta(req.Meta),
 	}
@@ -535,6 +536,9 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 		}
 		it.OutputPreview = preview(text, 600)
 		if req.Capture {
+			if len(text) > maxTextCapture || len(out.RequestJSON) > maxRequestCapture || len(out.ResponseJSON) > maxBodyCapture {
+				out.Truncated = true
+			}
 			it.OutputText = truncateBytes(text, maxTextCapture)
 			it.RequestJSON = truncateBytes(out.RequestJSON, maxRequestCapture)
 			it.ResponseJSON = truncateBytes(out.ResponseJSON, maxBodyCapture)
@@ -696,7 +700,8 @@ func shouldRetry(out *protocol.Outcome, err error, p RetryPolicy, ctx context.Co
 		return p.RetryOnNetwork
 	}
 	// Protocol/stream hiccups on a 2xx are worth one retry when enabled.
-	if out.Status >= 200 && out.Status < 300 && out.ErrorMessage != "" && (out.StreamError || out.ErrorCode == "protocol") {
+	if out.Status >= 200 && out.Status < 300 && out.ErrorMessage != "" &&
+		(out.StreamError || out.ErrorCode == "protocol" || out.ErrorCode == "empty") {
 		return p.RetryOn5xx
 	}
 	return false
@@ -777,8 +782,10 @@ func classifyFailure(out *protocol.Outcome, err error, it *model.Item) (string, 
 		return "stream", msg
 	case out.ErrorCode == "parse":
 		return "parse", msg
-	case out.ErrorCode == "prompt_blocked":
+	case out.ErrorCode == "prompt_blocked" || out.ErrorCode == "blocked":
 		return "blocked", msg
+	case out.ErrorCode == "empty":
+		return "empty", msg
 	case out.ErrorCode == "protocol":
 		return "protocol", msg
 	default:
@@ -794,6 +801,9 @@ func preview(s string, n int) string {
 func truncateBytes(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
 	}
 	return s[:n]
 }

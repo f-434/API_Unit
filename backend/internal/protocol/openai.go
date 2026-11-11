@@ -279,6 +279,7 @@ type openAIMessage struct {
 	Content          json.RawMessage `json:"content"`
 	ReasoningContent string          `json:"reasoning_content"`
 	Reasoning        string          `json:"reasoning"`
+	ToolCalls        json.RawMessage `json:"tool_calls"`
 }
 
 type openAIChoice struct {
@@ -325,13 +326,21 @@ func parseOpenAIJSON(data []byte, out *Outcome) (bool, error) {
 					text = ch.Message.Reasoning
 				}
 			}
-			out.Text += text
+			if text != "" {
+				out.Text += text
+				out.HasContent = true
+			}
+			if rawPresent(ch.Message.ToolCalls) {
+				out.HasContent = true
+			}
 		}
 		if ch.Text != "" {
 			out.Text += ch.Text
+			out.HasContent = true
 		}
-		if ch.FinishReason != nil {
+		if ch.FinishReason != nil && *ch.FinishReason != "" {
 			out.FinishReason = *ch.FinishReason
+			out.Terminal = true
 		}
 	}
 	return hasPayload, nil
@@ -347,13 +356,14 @@ func parseOpenAIStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 		}
 		if data == "[DONE]" {
 			done = true
+			out.Terminal = true
 			return io.EOF
 		}
 		cap.Add(data + "\n")
 		var chunk openAIResponse
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			out.ChunkCount++
-			hasPayload = true
+			out.Malformed++
 			return nil
 		}
 		out.ChunkCount++
@@ -379,6 +389,7 @@ func parseOpenAIStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 			hasPayload = true
 			if ch.FinishReason != nil && *ch.FinishReason != "" {
 				out.FinishReason = *ch.FinishReason
+				out.Terminal = true
 			}
 			if ch.Delta == nil {
 				continue
@@ -390,11 +401,16 @@ func parseOpenAIStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 			}
 			if text != "" {
 				out.Text += text
+				out.HasContent = true
 				noteToken(out, start, len(text))
 			}
 			if reasoning != "" {
 				out.Reasoning += reasoning
+				out.HasContent = true
 				noteToken(out, start, len(reasoning))
+			}
+			if rawPresent(ch.Delta.ToolCalls) {
+				out.HasContent = true
 			}
 		}
 		return nil
@@ -432,8 +448,10 @@ func parseJSONPayload(p model.Protocol, data []byte, out *Outcome) (bool, error)
 	}
 }
 
+const maxStreamCapture = 1 << 20
+
 func parseStream(p model.Protocol, r io.Reader, out *Outcome, start time.Time) (bool, error) {
-	cap := newCapture(256 * 1024)
+	cap := newCapture(maxStreamCapture)
 	var has bool
 	var err error
 	switch p {

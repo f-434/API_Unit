@@ -830,7 +830,8 @@ func scanItem(rows scanner, light bool) (model.Item, error) {
 }
 
 // ListItemsAll returns up to limit items for exports (limit <= 0 means all).
-func (s *Store) ListItemsAll(runID string, limit int) ([]model.Item, error) {
+// Pass light=false to include request/response bodies.
+func (s *Store) ListItemsAll(runID string, limit int, light bool) ([]model.Item, error) {
 	if limit <= 0 || limit > 200000 {
 		limit = 200000
 	}
@@ -841,7 +842,7 @@ func (s *Store) ListItemsAll(runID string, limit int) ([]model.Item, error) {
 	defer rows.Close()
 	out := make([]model.Item, 0, 128)
 	for rows.Next() {
-		it, err := scanItem(rows, true)
+		it, err := scanItem(rows, light)
 		if err != nil {
 			return nil, err
 		}

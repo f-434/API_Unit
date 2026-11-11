@@ -4,7 +4,7 @@
 
 | 模块 | 说明 |
 | --- | --- |
-| **并发压测** | 固定请求数、持续时长、并发爬坡；统计 QPS、延迟分位、TTFT、TPOT、真实并发、Token 与成本 |
+| **并发压测** | 固定请求数、持续时长、并发爬坡；统计 QPS、RPM、延迟分位、TTFT、TPOT、真实并发、Token 与成本 |
 | **Token 审计** | 同一提示词发往多个上游/模型，对比输入 Token、重复波动与本地分词器偏差，定位额外 Token 注入 |
 | **请求差异审计** | 保存完整请求快照与 SHA-256；对 `systemInstruction`、`contents`、`tools`、`generationConfig`、`cachedContent`、`safetySettings` 等做 JSONPath 结构化 Diff；扫描隐藏指令 |
 | **提示词注入** | 内置攻击用例 + 规则判定 + LLM-as-judge，输出 ASR、分类风险与逐用例明细 |
@@ -142,6 +142,15 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | `TOKENIZER_DIR` | `$DATA_DIR/tokenizers` | 分词器文件目录 |
 | `OFFLINE` | `false` | `true` 时禁止联网下载 Gemini 分词器 |
 | `API_UNIT_VERSION` | `1.0.0` | 展示版本 |
+| `HTTP_DIAL_TIMEOUT_SEC` | `15` | TCP 连接超时（秒） |
+| `HTTP_TLS_TIMEOUT_SEC` | `30` | TLS 握手超时（秒） |
+| `HTTP_RESPONSE_TIMEOUT_SEC` | `60` | 等待响应头超时（秒） |
+| `DISCOVER_TIMEOUT_SEC` | `45` | 获取模型列表的单次请求超时（秒） |
+| `DISCOVER_TOTAL_TIMEOUT_SEC` | `120` | 获取模型列表的总超时（秒），含重试 |
+| `DISCOVER_RETRIES` | `2` | 取模型失败时的重试次数（仅重试超时/网络错误/429/5xx） |
+| `HTTPS_PROXY` / `HTTP_PROXY` | 空 | 访问上游的 HTTP 代理；需在启动前设置 |
+
+> 若访问 HTTPS 上游频繁出现 `TLS handshake timeout`，通常是到该域名的链路不稳定或被限速。优先设置 `HTTPS_PROXY` 后重启服务，或调大 `HTTP_TLS_TIMEOUT_SEC` / `DISCOVER_TIMEOUT_SEC` / `DISCOVER_RETRIES`。
 
 安全说明：
 
@@ -157,7 +166,9 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 
 - 模式：`fixed`（固定请求数）、`duration`（持续时长）、`ramp`（并发爬坡）。
 - 调度：闭环保并发；可选 RPS 上限；可选多模型并行。
-- 指标：成功/失败/取消、成功率、QPS、延迟 P50/P90/P95/P99、TTFT、TPOT、输出 tok/s、Token、缓存 Token、成本、状态码、错误分组、逐秒序列。
+- 指标：成功/失败/取消、成功率、QPS、RPM（成功请求/分钟）、延迟 P50/P90/P95/P99、TTFT、TPOT、输出 tok/s、Token、缓存 Token、成本、状态码、错误分组、逐秒序列。
+- **成功判定**：HTTP 2xx + 可解析的协议信封 + 实际输出（文本/推理/工具调用）。仅 usage、空 candidates、无法解析的 SSE 数据块、缺少终止标记的流都会计为失败（`empty` / `stream` / `blocked`）。
+- 请求/响应正文捕获默认关闭；开启后落库上限为请求 8MB、响应 1MB、输出文本 256KB，超出部分标记 `truncated`。JSON/HTML/CSV 导出均内嵌正文。
 - **真实并发**：250ms 采样在途请求数，不再把"配置并发"当作实际并发。
 - **延迟分位只统计成功请求**，失败请求单独保留错误延迟，避免污染 P95/P99。
 - 状态码 `0` 统一标记为“网络/无响应”，不再显示为 HTTP 0。

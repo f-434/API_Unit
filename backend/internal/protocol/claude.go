@@ -238,12 +238,23 @@ func parseClaudeJSON(data []byte, out *Outcome) (bool, error) {
 		hasPayload = true
 		switch c.Type {
 		case "text":
-			out.Text += c.Text
+			if c.Text != "" {
+				out.Text += c.Text
+				out.HasContent = true
+			}
 		case "thinking":
-			out.Reasoning += c.Thinking
+			if c.Thinking != "" {
+				out.Reasoning += c.Thinking
+				out.HasContent = true
+			}
+		case "tool_use", "server_tool_use":
+			out.HasContent = true
 		}
 	}
 	out.FinishReason = r.StopReason
+	if r.StopReason != "" {
+		out.Terminal = true
+	}
 	return hasPayload, nil
 }
 
@@ -277,7 +288,7 @@ func parseClaudeStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 		var e claudeStreamEvent
 		if err := json.Unmarshal([]byte(data), &e); err != nil {
 			out.ChunkCount++
-			hasPayload = true
+			out.Malformed++
 			return nil
 		}
 		out.ChunkCount++
@@ -303,19 +314,35 @@ func parseClaudeStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 			}
 		case "content_block_start":
 			hasPayload = true
-			if e.ContentBlock != nil && e.ContentBlock.Type == "text" && e.ContentBlock.Text != "" {
-				out.Text += e.ContentBlock.Text
-				noteToken(out, start, len(e.ContentBlock.Text))
+			if e.ContentBlock != nil {
+				switch e.ContentBlock.Type {
+				case "text":
+					if e.ContentBlock.Text != "" {
+						out.Text += e.ContentBlock.Text
+						out.HasContent = true
+						noteToken(out, start, len(e.ContentBlock.Text))
+					}
+				case "thinking":
+					if e.ContentBlock.Thinking != "" {
+						out.Reasoning += e.ContentBlock.Thinking
+						out.HasContent = true
+						noteToken(out, start, len(e.ContentBlock.Thinking))
+					}
+				case "tool_use", "server_tool_use":
+					out.HasContent = true
+				}
 			}
 		case "content_block_delta":
 			hasPayload = true
 			if e.Delta != nil {
 				if e.Delta.Text != "" {
 					out.Text += e.Delta.Text
+					out.HasContent = true
 					noteToken(out, start, len(e.Delta.Text))
 				}
 				if e.Delta.Thinking != "" {
 					out.Reasoning += e.Delta.Thinking
+					out.HasContent = true
 					noteToken(out, start, len(e.Delta.Thinking))
 				}
 			}
@@ -338,6 +365,7 @@ func parseClaudeStream(r io.Reader, out *Outcome, start time.Time, cap *capture)
 			}
 		case "message_stop":
 			hasPayload = true
+			out.Terminal = true
 		case "ping":
 		default:
 			if e.Usage != nil {

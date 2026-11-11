@@ -32,6 +32,7 @@ export default function Dashboard() {
     { title: '请求', width: 90, render: (_: any, r: any) => <span>{r.summary?.total ?? 0}</span> },
     { title: '成功率', width: 100, render: (_: any, r: any) => <span>{fmtPct(r.summary?.successRate)}</span> },
     { title: 'QPS', width: 90, render: (_: any, r: any) => <span>{(r.summary?.qps ?? 0).toFixed(2)}</span> },
+    { title: 'RPM', width: 90, render: (_: any, r: any) => <span>{r.kind === 'stress' ? (r.summary?.rpm ?? 0).toFixed(2) : '-'}</span> },
     { title: '耗时', width: 100, render: (_: any, r: any) => <span>{fmtDuration(r.summary?.elapsedMs || r.durationMs)}</span> },
     { title: '时间', dataIndex: 'createdAt', width: 170, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
   ]

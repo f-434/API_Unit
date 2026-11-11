@@ -36,6 +36,7 @@ export default function History() {
     { title: '请求', width: 85, render: (_: any, r: RunRow) => r.summary?.total ?? 0 },
     { title: '成功率', width: 95, render: (_: any, r: RunRow) => fmtPct(r.summary?.successRate) },
     { title: 'QPS / ASR', width: 100, render: (_: any, r: RunRow) => r.kind === 'injection' ? fmtPct(r.summary?.asr) : (r.summary?.qps ?? 0).toFixed(2) },
+    { title: 'RPM', width: 85, render: (_: any, r: RunRow) => r.kind === 'stress' ? (r.summary?.rpm ?? 0).toFixed(2) : '-' },
     { title: '耗时', width: 100, render: (_: any, r: RunRow) => fmtDuration(r.summary?.elapsedMs || r.durationMs) },
     { title: '创建时间', dataIndex: 'createdAt', width: 170, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
     {

@@ -17,26 +17,69 @@ import (
 
 const defaultMaxBody = 32 << 20
 
+type ClientOptions struct {
+	DialTimeout           time.Duration
+	TLSHandshakeTimeout   time.Duration
+	ResponseHeaderTimeout time.Duration
+	DiscoverTimeout       time.Duration
+	DiscoverTotalTimeout  time.Duration
+	DiscoverRetries       int
+}
+
 type Client struct {
 	http    *http.Client
 	maxBody int64
+
+	discoverTimeout      time.Duration
+	discoverTotalTimeout time.Duration
+	discoverRetries      int
 }
 
-func NewClient() *Client {
+func NewClient() *Client { return NewClientWithOptions(ClientOptions{}) }
+
+func NewClientWithOptions(o ClientOptions) *Client {
+	if o.DialTimeout <= 0 {
+		o.DialTimeout = 15 * time.Second
+	}
+	if o.TLSHandshakeTimeout <= 0 {
+		o.TLSHandshakeTimeout = 30 * time.Second
+	}
+	if o.ResponseHeaderTimeout <= 0 {
+		o.ResponseHeaderTimeout = 60 * time.Second
+	}
+	if o.DiscoverTimeout <= 0 {
+		o.DiscoverTimeout = 45 * time.Second
+	}
+	if o.DiscoverTotalTimeout <= 0 {
+		o.DiscoverTotalTimeout = 120 * time.Second
+	}
+	if o.DiscoverRetries < 0 {
+		o.DiscoverRetries = 2
+	}
+	if o.DiscoverRetries > 10 {
+		o.DiscoverRetries = 10
+	}
 	tr := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
+			Timeout:   o.DialTimeout,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          500,
 		MaxIdleConnsPerHost:   200,
 		IdleConnTimeout:       90 * time.Second,
-		TLSHandshakeTimeout:   10 * time.Second,
+		TLSHandshakeTimeout:   o.TLSHandshakeTimeout,
+		ResponseHeaderTimeout: o.ResponseHeaderTimeout,
 		ExpectContinueTimeout: time.Second,
 	}
-	return &Client{http: &http.Client{Transport: tr}, maxBody: defaultMaxBody}
+	return &Client{
+		http:                 &http.Client{Transport: tr},
+		maxBody:              defaultMaxBody,
+		discoverTimeout:      o.DiscoverTimeout,
+		discoverTotalTimeout: o.DiscoverTotalTimeout,
+		discoverRetries:      o.DiscoverRetries,
+	}
 }
 
 // Do performs one chat completion call and normalizes the response.
@@ -112,11 +155,7 @@ func (c *Client) Do(ctx context.Context, t TargetInfo, req ChatRequest) (*Outcom
 			}
 			out.StreamError = true
 		}
-		out.OK = hasPayload && out.ErrorMessage == ""
-		if !hasPayload && out.ErrorMessage == "" {
-			out.ErrorCode = "protocol"
-			out.ErrorMessage = "流式响应中没有可解析的内容"
-		}
+		out.OK = finalizeStream(out, hasPayload)
 		return out, nil
 	}
 
@@ -139,20 +178,73 @@ func (c *Client) Do(ctx context.Context, t TargetInfo, req ChatRequest) (*Outcom
 		out.OK = false
 		return out, nil
 	}
-	if out.ErrorMessage != "" {
-		out.OK = false
-		return out, nil
-	}
-	out.OK = hasPayload
-	if !hasPayload {
-		out.ErrorCode = "protocol"
-		out.ErrorMessage = "响应中没有可解析的内容"
-	}
+	out.OK = finalizeJSON(out, hasPayload)
 	if out.OK {
 		// Non-stream: TTFT is indistinguishable from total latency.
 		out.TTFTMs = out.LatencyMs
 	}
 	return out, nil
+}
+
+// finalizeStream decides whether a 2xx streaming response counts as success.
+// A usable stream must carry real model output and a normal terminal signal.
+func finalizeStream(out *Outcome, hasPayload bool) bool {
+	if out.ErrorMessage != "" {
+		return false
+	}
+	if !hasPayload {
+		out.ErrorCode = "protocol"
+		out.ErrorMessage = "流式响应中没有可解析的内容"
+		return false
+	}
+	if !out.HasContent {
+		if out.Malformed > 0 {
+			out.ErrorCode = "stream"
+			out.StreamError = true
+			out.ErrorMessage = fmt.Sprintf("流式响应包含 %d 个无法解析的数据块，且没有有效内容", out.Malformed)
+			return false
+		}
+		out.ErrorCode, out.ErrorMessage = emptyOutcomeMessage(out.FinishReason)
+		return false
+	}
+	if !out.Terminal {
+		out.ErrorCode = "stream"
+		out.StreamError = true
+		out.ErrorMessage = "流式响应未正常结束（缺少终止标记）"
+		return false
+	}
+	return true
+}
+
+// finalizeJSON decides whether a 2xx non-streaming response counts as success.
+func finalizeJSON(out *Outcome, hasPayload bool) bool {
+	if out.ErrorMessage != "" {
+		return false
+	}
+	if !hasPayload {
+		out.ErrorCode = "protocol"
+		out.ErrorMessage = "响应中没有可解析的内容"
+		return false
+	}
+	if !out.HasContent {
+		out.ErrorCode, out.ErrorMessage = emptyOutcomeMessage(out.FinishReason)
+		return false
+	}
+	return true
+}
+
+func emptyOutcomeMessage(finishReason string) (code, message string) {
+	fr := strings.ToLower(strings.TrimSpace(finishReason))
+	switch fr {
+	case "safety", "recitation", "blocklist", "prohibited_content", "spii", "image_safety", "content_filter":
+		return "blocked", "输出被安全策略拦截（finishReason=" + finishReason + "）"
+	case "refusal":
+		return "blocked", "模型拒绝输出（finishReason=" + finishReason + "）"
+	}
+	if finishReason == "" {
+		return "empty", "上游返回空内容"
+	}
+	return "empty", "上游返回空内容（finishReason=" + finishReason + "）"
 }
 
 func looksLikeSSE(b []byte) bool {

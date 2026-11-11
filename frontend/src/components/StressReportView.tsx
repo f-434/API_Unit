@@ -27,6 +27,7 @@ export default function StressReportView({ aggregate, models, live }: {
   const canceled = aggregate?.canceled ?? live?.canceled ?? 0
   const successRate = aggregate?.successRate ?? live?.successRate ?? 0
   const qps = aggregate?.qps ?? live?.qps ?? 0
+  const rpm = aggregate?.rpm ?? live?.rpm ?? 0
   const elapsed = aggregate?.elapsedMs ?? live?.elapsedMs ?? 0
   const latency = aggregate?.latency || live?.latency
   const ttft = aggregate?.ttft || live?.ttft
@@ -40,7 +41,7 @@ export default function StressReportView({ aggregate, models, live }: {
   const modelRows = models && models.length ? models : modelLive.map(m => ({
     model: m.model, targetName: m.targetName, protocol: m.protocol,
     total: m.completed, success: m.success, failed: m.failed, successRate: m.successRate,
-    qps: m.qps, latency: { avg: m.avgLatencyMs, p95: 0 }, ttft: { avg: m.ttftMs },
+    qps: m.qps, rpm: m.rpm, latency: { avg: m.avgLatencyMs, p95: 0 }, ttft: { avg: m.ttftMs },
     tokens: { prompt: 0, completion: 0, cost: 0 },
   })) as any[]
 
@@ -53,6 +54,7 @@ export default function StressReportView({ aggregate, models, live }: {
         <Kpi label="取消" value={fmtInt(canceled)} />
         <Kpi label="成功率" value={fmtPct(successRate)} />
         <Kpi label="QPS" value={fmtNum(qps, 2)} suffix="req/s" />
+        <Kpi label="RPM" value={fmtNum(rpm, 2)} suffix="req/min" />
         <Kpi label="平均延迟" value={fmtMs(latency?.avg)} />
         <Kpi label="P95 延迟" value={fmtMs(latency?.p95)} />
         <Kpi label="平均 TTFT" value={fmtMs(ttft?.avg)} />
@@ -94,6 +96,7 @@ export default function StressReportView({ aggregate, models, live }: {
             { title: 'P95', width: 100, render: (_: any, r: any) => r.latency?.p95 ? fmtMs(r.latency.p95) : '-' },
             { title: 'TTFT', width: 100, render: (_: any, r: any) => fmtMs(r.ttft?.avg) },
             { title: 'QPS', dataIndex: 'qps', width: 90, render: (v: number) => fmtNum(v, 2) },
+            { title: 'RPM', dataIndex: 'rpm', width: 100, render: (v: number) => fmtNum(v, 2) },
             { title: 'Prompt', width: 100, render: (_: any, r: any) => fmtInt(r.tokens?.prompt) },
             { title: 'Completion', width: 110, render: (_: any, r: any) => fmtInt(r.tokens?.completion) },
             { title: '成本', width: 100, render: (_: any, r: any) => fmtCost(r.tokens?.cost) },

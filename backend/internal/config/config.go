@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds process-level configuration. Everything has a safe local default.
@@ -22,6 +23,13 @@ type Config struct {
 	TokenizerDir      string
 	Offline           bool
 	Version           string
+
+	HTTPDialTimeout           time.Duration
+	HTTPTLSHandshakeTimeout   time.Duration
+	HTTPResponseHeaderTimeout time.Duration
+	DiscoverTimeout           time.Duration
+	DiscoverTotalTimeout      time.Duration
+	DiscoverRetries           int
 }
 
 func Load() *Config {
@@ -36,6 +44,13 @@ func Load() *Config {
 		TokenizerDir:      env("TOKENIZER_DIR", ""),
 		Offline:           envBool("OFFLINE", false),
 		Version:           env("API_UNIT_VERSION", "1.0.0"),
+
+		HTTPDialTimeout:           time.Duration(envInt("HTTP_DIAL_TIMEOUT_SEC", 15)) * time.Second,
+		HTTPTLSHandshakeTimeout:   time.Duration(envInt("HTTP_TLS_TIMEOUT_SEC", 30)) * time.Second,
+		HTTPResponseHeaderTimeout: time.Duration(envInt("HTTP_RESPONSE_TIMEOUT_SEC", 60)) * time.Second,
+		DiscoverTimeout:           time.Duration(envInt("DISCOVER_TIMEOUT_SEC", 45)) * time.Second,
+		DiscoverTotalTimeout:      time.Duration(envInt("DISCOVER_TOTAL_TIMEOUT_SEC", 120)) * time.Second,
+		DiscoverRetries:           envInt("DISCOVER_RETRIES", 2),
 	}
 	if cfg.TokenizerDir == "" {
 		cfg.TokenizerDir = filepath.Join(cfg.DataDir, "tokenizers")
@@ -54,6 +69,27 @@ func Load() *Config {
 	}
 	if cfg.MaxConcurrentRuns < 1 {
 		cfg.MaxConcurrentRuns = 1
+	}
+	if cfg.HTTPDialTimeout < time.Second {
+		cfg.HTTPDialTimeout = 15 * time.Second
+	}
+	if cfg.HTTPTLSHandshakeTimeout < time.Second {
+		cfg.HTTPTLSHandshakeTimeout = 30 * time.Second
+	}
+	if cfg.HTTPResponseHeaderTimeout < time.Second {
+		cfg.HTTPResponseHeaderTimeout = 60 * time.Second
+	}
+	if cfg.DiscoverTimeout < time.Second {
+		cfg.DiscoverTimeout = 45 * time.Second
+	}
+	if cfg.DiscoverTotalTimeout < time.Second {
+		cfg.DiscoverTotalTimeout = 120 * time.Second
+	}
+	if cfg.DiscoverRetries < 0 {
+		cfg.DiscoverRetries = 2
+	}
+	if cfg.DiscoverRetries > 10 {
+		cfg.DiscoverRetries = 10
 	}
 	sum := sha256.Sum256([]byte("apiunit-cookie:" + cfg.AuthPassword))
 	cfg.CookieSecret = sum[:]

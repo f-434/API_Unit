@@ -53,6 +53,7 @@ func (s *Server) handleRunsList(w http.ResponseWriter, r *http.Request) {
 	for i := range rows {
 		// List responses must stay small: drop the module report payload.
 		rows[i].Summary.Data = nil
+		backfillRPM(&rows[i].Summary)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total})
 }
@@ -75,6 +76,8 @@ func (s *Server) loadRunView(id string) (*model.RunView, error) {
 	if run.Summary != "" {
 		_ = json.Unmarshal([]byte(run.Summary), &summary)
 	}
+	backfillRPM(&summary)
+	backfillReportRPM(summary.Data)
 	var cfg any
 	if run.Config != "" {
 		_ = json.Unmarshal([]byte(run.Config), &cfg)
@@ -84,6 +87,57 @@ func (s *Server) loadRunView(id string) (*model.RunView, error) {
 		view.Live = live
 	}
 	return view, nil
+}
+
+// backfillRPM derives RPM for summaries persisted before the metric existed.
+func backfillRPM(s *model.RunSummary) {
+	if s == nil || s.RPM > 0 || s.QPS <= 0 {
+		return
+	}
+	s.RPM = s.QPS * 60
+}
+
+func backfillReportRPM(data any) {
+	m, ok := data.(map[string]any)
+	if !ok {
+		return
+	}
+	if agg, ok := m["aggregate"].(map[string]any); ok {
+		backfillRPMValue(agg)
+	}
+	if models, ok := m["models"].([]any); ok {
+		for _, row := range models {
+			if mm, ok := row.(map[string]any); ok {
+				backfillRPMValue(mm)
+			}
+		}
+	}
+}
+
+func backfillRPMValue(m map[string]any) {
+	if numeric(m["rpm"]) > 0 {
+		return
+	}
+	if qps := numeric(m["qps"]); qps > 0 {
+		m["rpm"] = qps * 60
+	}
+}
+
+func numeric(v any) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case float32:
+		return float64(x)
+	case int:
+		return float64(x)
+	case int64:
+		return float64(x)
+	case json.Number:
+		f, _ := x.Float64()
+		return f
+	}
+	return 0
 }
 
 func (s *Server) handleRunDelete(w http.ResponseWriter, r *http.Request) {

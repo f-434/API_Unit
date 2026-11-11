@@ -177,7 +177,11 @@ export default function StressNew() {
               </Form.Item>
             </Col>
             <Col xs={12} lg={6}><Form.Item name="parallelModels" label="多模型并行" valuePropName="checked"><Switch /></Form.Item></Col>
-            <Col xs={12} lg={6}><Form.Item name="captureBodies" label="保存请求/响应正文" valuePropName="checked"><Switch /></Form.Item></Col>
+            <Col xs={12} lg={6}>
+              <Form.Item name="captureBodies" label="保存请求/响应正文" valuePropName="checked" extra="开启后明细与导出报告可查看正文；上限：请求 8MB / 响应 1MB / 输出 256KB。">
+                <Switch />
+              </Form.Item>
+            </Col>
           </Row>
         </div>
 
