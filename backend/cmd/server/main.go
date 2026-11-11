@@ -58,6 +58,11 @@ func main() {
 		DiscoverRetries:       cfg.DiscoverRetries,
 	})
 	counter := tokens.New(cfg.TokenizerDir, cfg.Offline)
+	go func() {
+		if err := counter.PreloadGemini(); err != nil {
+			log.Printf("preload tokenizers: %v", err)
+		}
+	}()
 	manager := engine.NewManager(st, client, counter, cfg.MaxConcurrentRuns)
 	manager.Register(stress.New(st))
 	manager.Register(tokenaudit.New(st))

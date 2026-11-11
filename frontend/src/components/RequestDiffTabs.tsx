@@ -12,8 +12,16 @@ import { BarChart } from './charts'
 import JsonTree, { type HighlightMap } from './JsonTree'
 import SnapshotDrawer from './SnapshotDrawer'
 
-function snapshotLabel(s: Snapshot) {
-  return `#${s.id} · ${s.targetLabel} · ${s.model} · ${s.caseName} · rep${s.repetition}`
+function runScope(s: Snapshot | undefined, currentRunId: string) {
+  if (!s) return null
+  return s.runId === currentRunId
+    ? <Tag color="blue" style={{ marginRight: 4 }}>当前任务</Tag>
+    : <Tag color="orange" style={{ marginRight: 4 }}>历史 {s.runId?.slice(-6) || '-'}</Tag>
+}
+
+function snapshotLabel(s: Snapshot, currentRunId: string) {
+  const scope = s.runId === currentRunId ? '[当前任务]' : `[历史 ${s.runId?.slice(-6) || '-'}]`
+  return `${scope} #${s.id} · ${s.targetLabel} · ${s.model} · ${s.caseName} · rep${s.repetition}`
 }
 
 export function SnapshotTable({ runId, report }: { runId: string; report?: RequestDiffReport }) {
@@ -39,8 +47,11 @@ export function SnapshotTable({ runId, report }: { runId: string; report?: Reque
         <Select allowClear placeholder="全部模型" value={model} onChange={v => { setModel(v); setPage(1) }} style={{ width: 220 }}
           options={Array.from(new Set(models)).map(m => ({ value: m, label: m }))} showSearch />
         <Input allowClear prefix={<SearchOutlined />} placeholder="搜索用例/标签/请求 ID/SHA" value={q} onChange={e => { setQ(e.target.value); setPage(1) }} style={{ width: 280 }} />
-        <Tag>{data?.total ?? 0} 份快照</Tag>
+        <Tag color="blue">{data?.total ?? 0} 份快照（当前任务）</Tag>
       </Space>
+      <div className="muted" style={{ marginBottom: 8 }}>
+        仅显示当前任务的请求快照；跨任务对比请到「差异对比」加载历史快照。
+      </div>
       <Table
         rowKey="id"
         size="small"
@@ -176,14 +187,19 @@ export function DiffPanel({ runId }: { runId: string }) {
     for (const s of historySnapshots) map.set(s.id, s)
     return Array.from(map.values()).sort((a, b) => a.id - b.id)
   }, [localSnapshots, historySnapshots])
-  const options = all.map(s => ({ value: s.id, label: snapshotLabel(s) }))
+  const options = all.map(s => ({ value: s.id, label: snapshotLabel(s, runId) }))
+  const localIds = useMemo(() => new Set(localSnapshots.map(s => s.id)), [localSnapshots])
+  const historyOnly = useMemo(() => all.filter(s => !localIds.has(s.id)), [all, localIds])
 
   const loadHistory = async () => {
     setHistoryLoading(true)
     try {
       const r = await api.snapshots({ limit: 300, order: 'desc' })
-      setHistorySnapshots(r.items)
-      message.success(`已加载 ${r.items.length} 份历史快照`)
+      // The current run is already in localSnapshots; only merge other runs so
+      // the "history" count matches what the dropdown actually adds.
+      const other = r.items.filter(s => s.runId !== runId)
+      setHistorySnapshots(other)
+      message.success(`已加载 ${other.length} 份其他任务的历史快照`)
     } catch (e: any) {
       message.error(e?.message || '加载失败')
     } finally {
@@ -222,9 +238,28 @@ export function DiffPanel({ runId }: { runId: string }) {
         showIcon
         style={{ marginBottom: 12 }}
         message="左右 JSON 对比"
-        description="wire 模式对比协议原生请求（如 Gemini 的 systemInstruction / contents / tools / generationConfig / cachedContent / safetySettings）；canonical 模式对比协议无关的逻辑请求，适合跨协议比较。"
-        action={<Button size="small" icon={<HistoryOutlined />} loading={historyLoading} onClick={loadHistory}>加载历史快照</Button>}
+        description={(
+          <div>
+            <div>wire 模式对比协议原生请求（如 Gemini 的 systemInstruction / contents / tools / generationConfig / cachedContent / safetySettings）；canonical 模式对比协议无关的逻辑请求，适合跨协议比较。</div>
+            <div className="muted" style={{ marginTop: 4 }}>
+              当前任务 {localSnapshots.length} 份快照。加载历史只用于跨任务对比，不会改变当前任务的请求数。
+            </div>
+          </div>
+        )}
+        action={(
+          <Space>
+            {historySnapshots.length > 0 && (
+              <Button size="small" onClick={() => setHistorySnapshots([])}>清除历史快照</Button>
+            )}
+            <Button size="small" icon={<HistoryOutlined />} loading={historyLoading} onClick={loadHistory}>加载历史快照</Button>
+          </Space>
+        )}
       />
+      {historyOnly.length > 0 && (
+        <div className="muted" style={{ marginBottom: 8 }}>
+          下拉框中已合并其他任务的历史快照 {historyOnly.length} 份；带 <Tag color="orange">历史</Tag> 标记的条目不来自当前任务。
+        </div>
+      )}
       <div className="panel" style={{ marginBottom: 12 }}>
         <Row gutter={[12, 10]} align="middle">
           <Col xs={24} lg={8}>
@@ -297,14 +332,14 @@ export function DiffPanel({ runId }: { runId: string }) {
           <div className="diff-grid" style={{ marginBottom: 12 }}>
             <div className="diff-pane">
               <div className="diff-pane-title">
-                <span>左侧 · #{left?.id} · {left?.targetLabel} / {left?.model}</span>
+                <span>{runScope(left, runId)}左侧 · #{left?.id} · {left?.targetLabel} / {left?.model}</span>
                 <span className="muted">{left?.caseName} · rep{left?.repetition}</span>
               </div>
               {leftData ? <JsonTree data={leftData} highlight={leftHl} maxHeight={520} /> : <JsonBlock value={left?.body} maxHeight={520} />}
             </div>
             <div className="diff-pane">
               <div className="diff-pane-title">
-                <span>右侧 · #{right?.id} · {right?.targetLabel} / {right?.model}</span>
+                <span>{runScope(right, runId)}右侧 · #{right?.id} · {right?.targetLabel} / {right?.model}</span>
                 <span className="muted">{right?.caseName} · rep{right?.repetition}</span>
               </div>
               {rightData ? <JsonTree data={rightData} highlight={rightHl} maxHeight={520} /> : <JsonBlock value={right?.body} maxHeight={520} />}

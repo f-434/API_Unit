@@ -289,6 +289,60 @@ func (c *Counter) EnsureGemini(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+// ReloadGemini parses the local model files into memory without downloading.
+// It lets the Settings page refresh after files are replaced manually or after
+// the process has restarted.
+func (c *Counter) ReloadGemini() error {
+	c.geminiDownloadMu.Lock()
+	defer c.geminiDownloadMu.Unlock()
+
+	c.geminiMu.Lock()
+	c.processors = map[string]*geminiProcessor{}
+	c.geminiErrors = map[string]string{}
+	c.geminiMu.Unlock()
+
+	var errs []error
+	for _, spec := range geminiSpecs {
+		path := filepath.Join(c.tokenDir, spec.File)
+		if err := verifySHA256(path, spec.SHA256); err != nil {
+			msg := fmt.Sprintf("%s 未就绪：%v", spec.File, err)
+			c.setGeminiError(spec.Name, msg)
+			errs = append(errs, errors.New(msg))
+			continue
+		}
+		if _, err := c.loadAndStoreGemini(spec, path); err != nil {
+			c.setGeminiError(spec.Name, err.Error())
+			errs = append(errs, fmt.Errorf("%s: %w", spec.File, err))
+			continue
+		}
+		c.setGeminiError(spec.Name, "")
+	}
+	return errors.Join(errs...)
+}
+
+// PreloadGemini loads model files that already exist at startup. Missing files
+// are skipped without caching an error so the lazy download path still works.
+func (c *Counter) PreloadGemini() error {
+	c.geminiDownloadMu.Lock()
+	defer c.geminiDownloadMu.Unlock()
+
+	var errs []error
+	for _, spec := range geminiSpecs {
+		path := filepath.Join(c.tokenDir, spec.File)
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		if err := verifySHA256(path, spec.SHA256); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", spec.File, err))
+			continue
+		}
+		if _, err := c.loadAndStoreGemini(spec, path); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", spec.File, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // ResetGemini removes the local model files, loaded processors and cached
 // errors. The next count or EnsureGemini call will download them again.
 func (c *Counter) ResetGemini() error {

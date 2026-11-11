@@ -123,5 +123,10 @@ a { color: #165dff; }
 .form-hint { color: #86909c; font-size: 12px; }
 .code-input textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; }
 .scroll-x { overflow-x: auto; }
+/* Dense result table: keep one-line rows so long previews/errors do not
+   stretch row height and hurt scanning. */
+.items-table .ant-table-thead > tr > th { padding-top: 5px !important; padding-bottom: 5px !important; }
+.items-table .ant-table-tbody > tr > td { padding-top: 3px !important; padding-bottom: 3px !important; line-height: 1.35; white-space: nowrap; }
+.items-table .ant-table-tbody > tr > td.ant-table-cell-ellipsis { overflow: hidden; text-overflow: ellipsis; }
 .ant-card { box-shadow: 0 1px 2px rgba(15, 23, 42, .02); }
 .ant-card .ant-card-head { border-bottom-color: #f0f1f3; }

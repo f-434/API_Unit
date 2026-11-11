@@ -1,7 +1,9 @@
 import { Alert, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { AuditCell, AuditReport } from '../types'
 import { Kpi, EmptyPanel, VerdictTag } from './common'
-import { fmtCost, fmtMs, fmtNum, fmtPct, fmtInt } from '../format'
+import {
+  auditCellStats, fmtCost, fmtMs, fmtNum, fmtPct, fmtInt, requestSuccessRate, targetAuditStats,
+} from '../format'
 import { BarChart } from './charts'
 
 function CellView({ c }: { c?: AuditCell }) {
@@ -27,6 +29,8 @@ function CellView({ c }: { c?: AuditCell }) {
 
 export default function AuditReportView({ report, showCharts = true }: { report?: AuditReport; showCharts?: boolean }) {
   if (!report) return <EmptyPanel text="审计报告尚未生成（测试运行中或已中断）。" />
+  const audit = auditCellStats(report)
+  const reqRate = requestSuccessRate(report)
   const targetCols = report.targets.map(t => ({
     title: (
       <div>
@@ -45,6 +49,17 @@ export default function AuditReportView({ report, showCharts = true }: { report?
   return (
     <div>
       <div className="kpi-grid" style={{ marginBottom: 14 }}>
+        <Kpi
+          label="审计成功率"
+          value={audit.rate === undefined ? '-' : fmtPct(audit.rate)}
+          color={audit.rate === undefined ? undefined : audit.rate >= 100 ? '#16a34a' : '#d97706'}
+        />
+        <Kpi
+          label="审计单元格"
+          value={audit.total ? `${fmtInt(audit.normal)} / ${fmtInt(audit.total)}` : '-'}
+          color={audit.total && audit.normal < audit.total ? '#d97706' : undefined}
+        />
+        <Kpi label="请求成功率" value={fmtPct(reqRate)} />
         <Kpi label="总请求" value={fmtInt(report.totalRequests)} />
         <Kpi label="成功" value={fmtInt(report.success)} color="#16a34a" />
         <Kpi label="错误" value={fmtInt(report.errors)} color={report.errors ? '#dc2626' : undefined} />
@@ -65,8 +80,19 @@ export default function AuditReportView({ report, showCharts = true }: { report?
           columns={[
             { title: '目标', dataIndex: 'targetLabel', width: 160 },
             { title: '模型', dataIndex: 'model', render: (v: string) => <span className="mono">{v}</span> },
-            { title: '请求', dataIndex: 'count', width: 90 },
-            { title: '成功', dataIndex: 'success', width: 90 },
+            { title: '请求', dataIndex: 'count', width: 80 },
+            { title: '成功', dataIndex: 'success', width: 80 },
+            {
+              title: '请求成功率', width: 110,
+              render: (_: any, t: any) => <span>{fmtPct(t.count ? (t.success / t.count) * 100 : 0)}</span>,
+            },
+            {
+              title: '审计成功率', width: 110,
+              render: (_: any, t: any) => {
+                const s = targetAuditStats(report, t.targetIndex)
+                return <span style={{ color: s.rate !== undefined && s.rate < 100 ? '#d97706' : undefined }}>{s.rate === undefined ? '-' : fmtPct(s.rate)}</span>
+              },
+            },
             { title: '中位输入', dataIndex: 'medianInput', width: 110, render: (v: number) => fmtNum(v, 0) },
             { title: '本地 Token', dataIndex: 'localTokens', width: 110, render: (v: number) => fmtNum(v, 1) },
             { title: '本地偏差', dataIndex: 'overheadPct', width: 110, render: (v: number) => <span style={{ color: v > report.threshold ? '#dc2626' : undefined }}>{fmtPct(v)}</span> },

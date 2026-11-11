@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import type { AuditReport } from './types'
 
 export const fmtInt = (v?: number) => (v === undefined || v === null || Number.isNaN(v) ? '-' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 0 }).format(v))
 export const fmtNum = (v?: number, digits = 2) => (v === undefined || v === null || Number.isNaN(v) ? '-' : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: digits, minimumFractionDigits: 0 }).format(v))
@@ -9,6 +10,34 @@ export const fmtCost = (v?: number, currency = '$') => {
   if (v < 0.000001) return `< ${currency}0.000001`
   return `${currency}${v.toFixed(v >= 1 ? 4 : 6)}`
 }
+
+// Audit success rate = normal cells / total cells (one cell per prompt × target).
+export const auditCellStats = (report?: AuditReport) => {
+  if (!report || !report.prompts?.length) return { total: 0, normal: 0, rate: undefined as number | undefined }
+  let total = 0
+  let normal = 0
+  for (const row of report.prompts) {
+    for (const c of row.cells || []) {
+      total++
+      if (c.status === 'normal') normal++
+    }
+  }
+  return { total, normal, rate: total ? (normal / total) * 100 : undefined }
+}
+export const targetAuditStats = (report: AuditReport | undefined, targetIndex: number) => {
+  let total = 0
+  let normal = 0
+  for (const row of report?.prompts || []) {
+    for (const c of row.cells || []) {
+      if (c.targetIndex !== targetIndex) continue
+      total++
+      if (c.status === 'normal') normal++
+    }
+  }
+  return { total, normal, rate: total ? (normal / total) * 100 : undefined }
+}
+export const requestSuccessRate = (report?: AuditReport) =>
+  report && report.totalRequests > 0 ? (report.success / report.totalRequests) * 100 : undefined
 export const fmtTime = (ms?: number) => (!ms ? '-' : dayjs(ms).format('YYYY-MM-DD HH:mm:ss'))
 export const fmtClock = (ms?: number) => (!ms ? '-' : dayjs(ms).format('HH:mm:ss'))
 export const fmtBytes = (n?: number) => {

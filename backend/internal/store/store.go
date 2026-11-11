@@ -762,7 +762,9 @@ func (s *Store) ListItems(f ItemFilter) ([]model.Item, int, error) {
 	if f.OrderAsc {
 		order = "ASC"
 	}
-	rows, err := s.db.Query(`SELECT `+itemColumns+` FROM run_items WHERE `+clause+` ORDER BY id `+order+` LIMIT ? OFFSET ?`, append(args, f.Limit, f.Offset)...)
+	// item_index is assigned when a request starts. Ordering by the database
+	// row id breaks under concurrency because workers finish out of order.
+	rows, err := s.db.Query(`SELECT `+itemColumns+` FROM run_items WHERE `+clause+` ORDER BY item_index `+order+`, id `+order+` LIMIT ? OFFSET ?`, append(args, f.Limit, f.Offset)...)
 	if err != nil {
 		return nil, 0, err
 	}

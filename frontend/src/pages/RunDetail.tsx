@@ -8,9 +8,10 @@ import {
   ArrowLeftOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons'
 import { api, subscribeRun } from '../api'
-import type { InjectionReport, Live, RequestDiffReport } from '../types'
+import type { AuditReport, InjectionReport, Live, RequestDiffReport } from '../types'
 import {
-  kindLabel, kindColor, fmtInt, fmtPct, fmtDuration, fmtTime, fmtCost, statusLabel,
+  kindLabel, kindColor, fmtInt, fmtPct, fmtDuration, fmtTime, fmtCost,
+  auditCellStats, statusLabel,
 } from '../format'
 import { EmptyPanel, JsonBlock, Kpi, PageHeader, StatusTag, KindTag } from '../components/common'
 import { SeriesCharts } from '../components/charts'
@@ -21,7 +22,7 @@ import RunItems from '../components/RunItems'
 import { DiffPanel, FindingsTable, SnapshotTable } from '../components/RequestDiffTabs'
 import { stressPlan } from '../progress'
 
-function RunningOverview({ live }: { live?: Live }) {
+function RunningOverview({ live, successLabel = '成功率' }: { live?: Live; successLabel?: string }) {
   if (!live) return <EmptyPanel text="测试运行中，等待第一批数据…" />
   return (
     <div>
@@ -29,7 +30,7 @@ function RunningOverview({ live }: { live?: Live }) {
         <Kpi label="总请求" value={fmtInt(live.completed)} />
         <Kpi label="成功" value={fmtInt(live.success)} color="#16a34a" />
         <Kpi label="失败" value={fmtInt(live.failed)} color={live.failed ? '#dc2626' : undefined} />
-        <Kpi label="成功率" value={fmtPct(live.successRate)} />
+        <Kpi label={successLabel} value={fmtPct(live.successRate)} />
         <Kpi label="QPS" value={(live.qps || 0).toFixed(2)} />
         <Kpi label="RPM" value={(live.rpm || 0).toFixed(2)} />
         <Kpi label="实际并发" value={fmtInt(live.activeConcurrency)} />
@@ -124,6 +125,7 @@ export default function RunDetail() {
   const summary = data?.summary
   const reportData = summary?.data
   const models = useMemo(() => summary?.models || [], [summary])
+  const auditStats = useMemo(() => auditCellStats(reportData as AuditReport | undefined), [reportData])
 
   const stop = async () => {
     setStopping(true)
@@ -159,7 +161,18 @@ export default function RunDetail() {
       <Kpi label="状态" value={<StatusTag status={status} />} />
       <Kpi label="总请求" value={fmtInt(summary?.total ?? live?.completed)} />
       <Kpi label="成功 / 失败" value={<span>{fmtInt(summary?.success ?? live?.success)} / {fmtInt(summary?.failed ?? live?.failed)}</span>} />
-      <Kpi label="成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
+      {kind === 'token_audit' ? (
+        <>
+          <Kpi
+            label="审计成功率"
+            value={auditStats.rate === undefined ? '-' : fmtPct(auditStats.rate)}
+            color={auditStats.rate === undefined ? undefined : auditStats.rate >= 100 ? '#16a34a' : '#d97706'}
+          />
+          <Kpi label="请求成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
+        </>
+      ) : (
+        <Kpi label="成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
+      )}
       {kind === 'injection' ? (
         <Kpi label="ASR" value={fmtPct(summary?.asr)} color={(summary?.asr || 0) > 0 ? '#dc2626' : undefined} />
       ) : (
@@ -205,7 +218,7 @@ export default function RunDetail() {
     ]
   } else if (kind === 'token_audit') {
     tabs = [
-      { key: 'overview', label: '审计总览', children: reportData ? <AuditReportView report={reportData} /> : <RunningOverview live={live} /> },
+      { key: 'overview', label: '审计总览', children: reportData ? <AuditReportView report={reportData} /> : <RunningOverview live={live} successLabel="请求成功率" /> },
       { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} /> },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },

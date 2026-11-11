@@ -87,6 +87,7 @@ func (s *Server) Router() http.Handler {
 		pr.Post("/api/tokenizers/count", s.handleTokenizerCount)
 		pr.Get("/api/tokenizers/status", s.handleTokenizerStatus)
 		pr.Post("/api/tokenizers/ensure", s.handleTokenizerEnsure)
+		pr.Post("/api/tokenizers/reload", s.handleTokenizerReload)
 		pr.Post("/api/tokenizers/reset", s.handleTokenizerReset)
 
 		pr.Post("/api/runs", s.handleRunCreate)

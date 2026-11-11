@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Upload, message,
@@ -18,6 +18,30 @@ export default function Prompts() {
   const [importText, setImportText] = useState('')
   const [q, setQ] = useState('')
   const [form] = Form.useForm()
+  const content = Form.useWatch('content', form) as string | undefined
+  const [tokenCount, setTokenCount] = useState<number>()
+  const [counting, setCounting] = useState(false)
+
+  useEffect(() => {
+    if (!open) { setTokenCount(undefined); setCounting(false); return }
+    const text = (content || '').trim()
+    if (!text) { setTokenCount(0); setCounting(false); return }
+    let cancelled = false
+    setCounting(true)
+    const timer = setTimeout(() => {
+      api.tokenizerCount({
+        model: 'gpt-4o', strategy: 'tiktoken',
+        messages: [{ role: 'user', content: text }],
+      }).then((r: any) => {
+        if (!cancelled) setTokenCount(Number(r?.tokens || 0))
+      }).catch(() => {
+        if (!cancelled) setTokenCount(undefined)
+      }).finally(() => {
+        if (!cancelled) setCounting(false)
+      })
+    }, 300)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [open, content])
 
   const filtered = useMemo(() => {
     if (!q.trim()) return data
@@ -117,7 +141,12 @@ export default function Prompts() {
         <Form form={form} layout="vertical" onFinish={v => save.mutate(v)}>
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}><Input placeholder="例如：长中文审计" /></Form.Item>
           <Form.Item name="category" label="分类"><Input placeholder="custom / builtin" /></Form.Item>
-          <Form.Item name="content" label="提示词内容" rules={[{ required: true, message: '请输入内容' }]}>
+          <Form.Item
+            name="content"
+            label="提示词内容"
+            rules={[{ required: true, message: '请输入内容' }]}
+            extra={<span className="muted">预估输入 ≈ {counting ? '计算中…' : tokenCount === undefined ? '-' : tokenCount.toLocaleString('zh-CN')} tok（tiktoken / gpt-4o，含消息开销）</span>}
+          >
             <Input.TextArea rows={12} className="code-input" />
           </Form.Item>
         </Form>

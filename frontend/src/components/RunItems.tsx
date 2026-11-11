@@ -27,7 +27,7 @@ function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: 
   })
   const it: ItemDetail | undefined = data?.item
   return (
-    <Drawer open={open} onClose={onClose} width={980} title={it ? `请求结果 #${it.id} · ${it.caseName || it.model}` : '请求详情'} destroyOnClose>
+    <Drawer open={open} onClose={onClose} width={980} title={it ? `请求结果 #${it.index + 1} · ${it.caseName || it.model}` : '请求详情'} destroyOnClose>
       {!it ? <EmptyPanel text={isLoading ? '加载中…' : '无数据'} /> : (
         <>
           <Descriptions size="small" bordered column={2} style={{ marginBottom: 14 }}>
@@ -154,9 +154,9 @@ export default function RunItems({ runId, kind, models = [] }: { runId: string; 
   const openDetail = (it: Item) => { setDetailId(it.id); setDetailOpen(true) }
 
   const columns: any[] = [
-    { title: '#', dataIndex: 'index', width: 70 },
+    { title: '#', dataIndex: 'index', width: 58, render: (_: any, it: Item) => <span className="muted">{it.index + 1}</span> },
     { title: '时间', dataIndex: 'startedAt', width: 150, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
-    { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono" style={{ whiteSpace: 'nowrap' }}>{v}</span> },
+    { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono">{v}</span> },
     { title: '上游', dataIndex: 'targetName', width: 120, render: (v: string) => v || '-' },
     ...(kind !== 'stress' ? [{ title: '用例', dataIndex: 'caseName', width: 170 }] : []),
     ...(kind === 'injection' ? [{ title: '判定', dataIndex: 'verdict', width: 100, render: (v: string) => <VerdictTag verdict={v} /> }] : []),
@@ -167,12 +167,18 @@ export default function RunItems({ runId, kind, models = [] }: { runId: string; 
     { title: '来源', dataIndex: 'tokenSource', width: 85, render: (v: string) => <Tag>{tokenSourceLabel(v)}</Tag> },
     { title: '成本', dataIndex: 'cost', width: 90, render: (v: number) => fmtCost(v) },
     {
-      title: '错误/预览', key: 'err',
-      render: (_: any, it: Item) => it.ok ? <span className="muted">{truncate(it.outputPreview, 80)}</span> : (
-        <Tooltip title={it.errorMessage}><span style={{ color: '#dc2626' }}>{it.errorType ? errorTypeLabel(it.errorType) : '失败'}: {truncate(it.errorMessage, 70)}</span></Tooltip>
+      title: '错误/预览', key: 'err', width: 300, ellipsis: { showTitle: false },
+      render: (_: any, it: Item) => it.ok ? (
+        <Tooltip placement="topLeft" title={<div style={{ whiteSpace: 'pre-wrap' }}>{it.outputPreview || '-'}</div>}>
+          <span className="muted">{truncate(it.outputPreview, 120) || '-'}</span>
+        </Tooltip>
+      ) : (
+        <Tooltip placement="topLeft" title={<div style={{ whiteSpace: 'pre-wrap' }}>{it.errorMessage || '-'}</div>}>
+          <span style={{ color: '#dc2626' }}>{it.errorType ? errorTypeLabel(it.errorType) : '失败'}: {truncate(it.errorMessage, 120)}</span>
+        </Tooltip>
       ),
     },
-    { title: '', width: 50, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openDetail(it)} /> },
+    { title: '', width: 48, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openDetail(it)} /> },
   ]
 
   return (
@@ -189,11 +195,12 @@ export default function RunItems({ runId, kind, models = [] }: { runId: string; 
       </Space>
       <Table
         rowKey="id"
+        className="items-table"
         size="small"
         loading={isLoading || isFetching}
         dataSource={data?.items || []}
         columns={columns}
-        scroll={{ x: 1300 }}
+        scroll={{ x: 1620 }}
         pagination={{
           current: page, pageSize, total: data?.total || 0,
           showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200],

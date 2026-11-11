@@ -187,7 +187,7 @@ func (s *Server) handleRunItems(w http.ResponseWriter, r *http.Request) {
 		Search:   strings.TrimSpace(q.Get("q")),
 		Limit:    limit,
 		Offset:   offset,
-		OrderAsc: q.Get("order") == "asc",
+		OrderAsc: q.Get("order") != "desc",
 	}
 	items, total, err := s.store.ListItems(filter)
 	if err != nil {

@@ -77,6 +77,7 @@ export const api = {
   tokenizerStatus: () => get<TokenizerStatus>('/api/tokenizers/status'),
   tokenizerCount: (body: any) => post<any>('/api/tokenizers/count', body),
   ensureGeminiTokenizer: () => post<any>('/api/tokenizers/ensure'),
+  reloadTokenizers: () => post<any>('/api/tokenizers/reload'),
   resetGeminiTokenizer: (download = true) => post<any>('/api/tokenizers/reset', { download }),
   purgeRuns: (days: number) => post<{ deleted: number }>('/api/settings/purge', { days }),
 

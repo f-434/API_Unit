@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Descriptions, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd'
-import { CloudDownloadOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CloudDownloadOutlined, DeleteOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { EllipsisText, PageHeader } from '../components/common'
 import { fmtDuration } from '../format'
@@ -26,6 +26,19 @@ export default function Settings() {
     },
     onError: (e: any) => {
       message.error(e?.message || '下载失败', 8)
+      refresh()
+    },
+  })
+
+  const reloadTokenizers = useMutation({
+    mutationFn: api.reloadTokenizers,
+    onSuccess: (r: any) => {
+      if (r.ok) message.success('本地分词器已重新加载')
+      else message.error(r.error || '加载失败', 8)
+      refresh()
+    },
+    onError: (e: any) => {
+      message.error(e?.message || '加载失败', 8)
       refresh()
     },
   })
@@ -113,6 +126,7 @@ export default function Settings() {
           <Tag color={meta?.tokenizers?.tiktoken ? 'green' : 'default'}>tiktoken：{meta?.tokenizers?.tiktoken ? '已内置' : '不可用'}</Tag>
           <Tag color={offline ? 'orange' : 'blue'}>{offline ? '离线模式' : '在线模式'}</Tag>
           <Button icon={<CloudDownloadOutlined />} loading={ensureGemini.isPending} onClick={() => ensureGemini.mutate()} disabled={offline}>下载 / 校验 Gemini 分词器</Button>
+          <Button icon={<SyncOutlined />} loading={reloadTokenizers.isPending} onClick={() => reloadTokenizers.mutate()}>重新加载本地分词器</Button>
           <Popconfirm
             title="清除并重新下载 Gemini 分词器？"
             description="将删除本地模型文件并重新下载校验，网络较慢时可能需要几分钟。"
@@ -127,6 +141,7 @@ export default function Settings() {
         </Space>
         <div className="muted" style={{ marginBottom: 10 }}>
           下载会依次尝试 CDN / GitHub 官方源 / 代理镜像，并校验 SHA-256；网络较慢时可能需要几分钟，请保持页面打开。
+          「重新加载本地分词器」只从磁盘解析现有模型文件，不触发下载，适合替换文件后或状态显示未加载时使用。
         </div>
         {tokenizerDir && (
           <div className="muted" style={{ marginBottom: 10, wordBreak: 'break-all' }}>

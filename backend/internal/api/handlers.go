@@ -608,6 +608,14 @@ func (s *Server) handleTokenizerEnsure(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status})
 }
 
+func (s *Server) handleTokenizerReload(w http.ResponseWriter, r *http.Request) {
+	if err := s.counter.ReloadGemini(); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "status": s.counter.Status()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": s.counter.Status()})
+}
+
 func (s *Server) handleTokenizerReset(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Download bool `json:"download"`
