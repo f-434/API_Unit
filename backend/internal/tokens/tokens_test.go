@@ -1,6 +1,10 @@
 package tokens
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"apiunit/internal/protocol"
@@ -62,5 +66,56 @@ func TestGeminiUnavailableFallsBack(t *testing.T) {
 	r := c.CountText("gemini-2.5-flash", "hello", StrategyAuto)
 	if !r.Estimated || r.Source != "heuristic" {
 		t.Errorf("expected heuristic fallback, got %+v", r)
+	}
+}
+
+func TestVerifySHA256(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model.bin")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("hello"))
+	want := hex.EncodeToString(sum[:])
+	if err := verifySHA256(path, want); err != nil {
+		t.Fatalf("valid file rejected: %v", err)
+	}
+	if err := verifySHA256(path, "deadbeef"); err == nil {
+		t.Fatal("expected checksum mismatch")
+	}
+	if err := verifySHA256(filepath.Join(t.TempDir(), "missing"), want); !os.IsNotExist(err) {
+		t.Fatalf("expected not-exist error, got %v", err)
+	}
+}
+
+func TestResetGeminiClearsState(t *testing.T) {
+	dir := t.TempDir()
+	c := New(dir, false)
+	for _, spec := range geminiSpecs {
+		if err := os.WriteFile(filepath.Join(dir, spec.File), []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.processors["gemma3"] = &geminiProcessor{name: "gemma3"}
+	c.geminiErrors["gemma3"] = "download failed"
+	c.geminiErrors["gemma2"] = "checksum mismatch"
+
+	if err := c.ResetGemini(); err != nil {
+		t.Fatal(err)
+	}
+	st := c.Status()
+	for _, g := range st.Gemini {
+		if g.Downloaded || g.Loaded || g.Error != "" {
+			t.Errorf("status not cleared: %+v", g)
+		}
+		if _, err := os.Stat(filepath.Join(dir, g.File)); !os.IsNotExist(err) {
+			t.Errorf("%s was not removed", g.File)
+		}
+	}
+}
+
+func TestEnsureGeminiOffline(t *testing.T) {
+	c := New(t.TempDir(), true)
+	if err := c.EnsureGemini(t.Context()); err == nil {
+		t.Fatal("expected offline error")
 	}
 }

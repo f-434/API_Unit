@@ -87,6 +87,7 @@ func (s *Server) Router() http.Handler {
 		pr.Post("/api/tokenizers/count", s.handleTokenizerCount)
 		pr.Get("/api/tokenizers/status", s.handleTokenizerStatus)
 		pr.Post("/api/tokenizers/ensure", s.handleTokenizerEnsure)
+		pr.Post("/api/tokenizers/reset", s.handleTokenizerReset)
 
 		pr.Post("/api/runs", s.handleRunCreate)
 		pr.Get("/api/runs", s.handleRunsList)
@@ -165,7 +166,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"authEnabled": s.cfg.AuthEnabled(),
+		"authEnabled":   s.cfg.AuthEnabled(),
 		"authenticated": !s.cfg.AuthEnabled() || s.sessionValid(r),
 	})
 }

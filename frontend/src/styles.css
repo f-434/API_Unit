@@ -67,7 +67,8 @@ a { color: #165dff; }
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 .page-header h1 { font-size: 20px; margin: 0; font-weight: 650; color: #1d2129; }
 .page-header p { margin: 4px 0 0; color: #86909c; font-size: 12.5px; }
-.panel { background: #fff; border: 1px solid #e5e6eb; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(15, 23, 42, .02); }
+.panel { background: #fff; border: 1px solid #e5e6eb; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(15, 23, 42, .02); min-width: 0; }
+.tokenizer-error { white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.6; }
 .panel + .panel { margin-top: 16px; }
 .panel-title { font-weight: 650; font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; color: #1d2129; }
 .muted { color: #86909c; font-size: 12.5px; }

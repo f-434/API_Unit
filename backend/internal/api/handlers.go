@@ -597,7 +597,7 @@ func (s *Server) handleTokenizerStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenizerEnsure(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 	err := s.counter.EnsureGemini(ctx)
 	status := s.counter.Status()
@@ -606,6 +606,28 @@ func (s *Server) handleTokenizerEnsure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": status})
+}
+
+func (s *Server) handleTokenizerReset(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Download bool `json:"download"`
+	}
+	if r.Body != nil {
+		_ = decodeLenient(r, &req, 1<<20)
+	}
+	if err := s.counter.ResetGemini(); err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "status": s.counter.Status()})
+		return
+	}
+	if req.Download {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+		defer cancel()
+		if err := s.counter.EnsureGemini(ctx); err != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "status": s.counter.Status()})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "status": s.counter.Status()})
 }
 
 func (s *Server) handleTokenizerCount(w http.ResponseWriter, r *http.Request) {
@@ -661,16 +683,16 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		{"id": string(tokens.StrategyNone), "label": "不计数"},
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version": s.cfg.Version,
-		"authEnabled": s.cfg.AuthEnabled(),
-		"kinds": s.manager.Kinds(),
-		"protocols": protocol.Capabilities(),
-		"categories": seed.Categories(),
+		"version":             s.cfg.Version,
+		"authEnabled":         s.cfg.AuthEnabled(),
+		"kinds":               s.manager.Kinds(),
+		"protocols":           protocol.Capabilities(),
+		"categories":          seed.Categories(),
 		"tokenizerStrategies": strategies,
 		"limits": map[string]any{
 			"maxConcurrentRuns": s.cfg.MaxConcurrentRuns,
-			"maxBodyMb": s.cfg.MaxBodyBytes >> 20,
-			"retentionDays": s.cfg.RetentionDays,
+			"maxBodyMb":         s.cfg.MaxBodyBytes >> 20,
+			"retentionDays":     s.cfg.RetentionDays,
 		},
 		"tokenizers": s.counter.Status(),
 	})
@@ -678,15 +700,15 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"version": s.cfg.Version,
-		"dataDir": s.cfg.DataDir,
-		"webDir": s.cfg.WebDir,
-		"authEnabled": s.cfg.AuthEnabled(),
-		"offline": s.cfg.Offline,
-		"retentionDays": s.cfg.RetentionDays,
+		"version":           s.cfg.Version,
+		"dataDir":           s.cfg.DataDir,
+		"webDir":            s.cfg.WebDir,
+		"authEnabled":       s.cfg.AuthEnabled(),
+		"offline":           s.cfg.Offline,
+		"retentionDays":     s.cfg.RetentionDays,
 		"maxConcurrentRuns": s.cfg.MaxConcurrentRuns,
-		"activeRuns": s.manager.ActiveCount(),
-		"uptimeSec": int(time.Since(s.started).Seconds()),
+		"activeRuns":        s.manager.ActiveCount(),
+		"uptimeSec":         int(time.Since(s.started).Seconds()),
 	})
 }
 

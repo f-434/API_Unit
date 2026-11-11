@@ -45,9 +45,10 @@ type Counter struct {
 	o200k  tokenizer.Codec
 	cl100k tokenizer.Codec
 
-	geminiMu     sync.Mutex
-	processors   map[string]*geminiProcessor
-	geminiErrors map[string]string
+	geminiMu         sync.Mutex
+	geminiDownloadMu sync.Mutex
+	processors       map[string]*geminiProcessor
+	geminiErrors     map[string]string
 }
 
 func New(tokenDir string, offline bool) *Counter {

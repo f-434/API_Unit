@@ -182,7 +182,7 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 - 每个目标可单独选择分词器策略：
   - `auto`：OpenAI → tiktoken；Gemini → 本地 SentencePiece；Claude → 启发式
   - `tiktoken`：内置 `o200k_base` / `cl100k_base`，离线可用
-  - `gemini`：官方 Gemma 3 / Gemma 2 SentencePiece 模型（首次下载并 SHA-256 校验）
+  - `gemini`：官方 Gemma 3 / Gemma 2 SentencePiece 模型（首次下载并 SHA-256 校验；CDN / GitHub 官方源 / 代理镜像依次回退）
   - `online`：调用 OpenAI `POST /v1/responses/input_tokens`（失败自动回退）
   - `heuristic` / `none`
 - 判定：
@@ -268,6 +268,7 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | GET | `/api/tokenizers/status` | 分词器状态 |
 | POST | `/api/tokenizers/count` | Token 计数预览 |
 | POST | `/api/tokenizers/ensure` | 下载/校验 Gemini 分词器 |
+| POST | `/api/tokenizers/reset` | 清除本地分词器文件与缓存错误；`{download:true}` 时重新下载 |
 | POST | `/api/runs` | 创建测试 `{kind, config}` |
 | GET | `/api/runs...` | 列表、详情、停止、删除 |
 | GET | `/api/runs/{id}/events` | SSE：`snapshot` / `update` / `done` |
