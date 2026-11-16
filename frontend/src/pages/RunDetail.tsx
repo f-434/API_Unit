@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -91,6 +91,8 @@ export default function RunDetail() {
   const qc = useQueryClient()
   const [live, setLive] = useState<Live | undefined>()
   const [stopping, setStopping] = useState(false)
+  const [tabKey, setTabKey] = useState('overview')
+  const prevStatus = useRef<string>()
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['run', id],
@@ -113,12 +115,39 @@ export default function RunDetail() {
       onDone: () => {
         qc.invalidateQueries({ queryKey: ['run', id] })
         qc.invalidateQueries({ queryKey: ['runs'] })
+        qc.invalidateQueries({ queryKey: ['items', id] })
+        qc.invalidateQueries({ queryKey: ['runSnapshots', id] })
+        qc.invalidateQueries({ queryKey: ['snapshotsForFindings', id] })
+        qc.invalidateQueries({ queryKey: ['diffSnapshots', id] })
       },
     })
     return () => sub.close()
   }, [id, data?.run.status, qc])
 
+  // Fallback for a missed SSE "done": refresh detail tables once the run
+  // transitions from running/queued to a terminal state.
+  useEffect(() => {
+    const s = data?.run.status
+    if (!s) return
+    const wasActive = prevStatus.current === 'running' || prevStatus.current === 'queued'
+    const isActive = s === 'running' || s === 'queued'
+    if (wasActive && !isActive) {
+      qc.invalidateQueries({ queryKey: ['items', id] })
+      qc.invalidateQueries({ queryKey: ['runSnapshots', id] })
+      qc.invalidateQueries({ queryKey: ['snapshotsForFindings', id] })
+      qc.invalidateQueries({ queryKey: ['diffSnapshots', id] })
+    }
+    prevStatus.current = s
+  }, [data?.run.status, id, qc])
+
   const kind = data?.run.kind
+
+  // Reset to the first tab when switching between run kinds (e.g. leaving a
+  // request_diff run while its "snapshots" tab is selected).
+  useEffect(() => {
+    if (kind) setTabKey('overview')
+  }, [kind])
+
   const runStatus = data?.run.status
   const terminal = runStatus === 'completed' || runStatus === 'stopped' || runStatus === 'failed' || runStatus === 'interrupted'
   const status = terminal ? runStatus : (live?.status || runStatus)
@@ -213,13 +242,13 @@ export default function RunDetail() {
         key: 'overview', label: '实时 / 报告',
         children: <StressReportView aggregate={reportData?.aggregate} models={reportData?.models} live={live} config={data.config} />,
       },
-      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} /> },
+      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
     ]
   } else if (kind === 'token_audit') {
     tabs = [
       { key: 'overview', label: '审计总览', children: reportData ? <AuditReportView report={reportData} /> : <RunningOverview live={live} successLabel="请求成功率" /> },
-      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} /> },
+      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
     ]
@@ -229,16 +258,16 @@ export default function RunDetail() {
         key: 'overview', label: '审计总览',
         children: <RequestDiffOverview report={reportData as RequestDiffReport} live={live} running={isRunning} />,
       },
-      { key: 'snapshots', label: '请求快照', children: <SnapshotTable runId={id} report={reportData as RequestDiffReport} /> },
-      { key: 'diff', label: '差异对比', children: <DiffPanel runId={id} /> },
-      { key: 'findings', label: '隐藏指令', children: <FindingsTable runId={id} /> },
-      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} /> },
+      { key: 'snapshots', label: '请求快照', children: <SnapshotTable runId={id} report={reportData as RequestDiffReport} polling={isRunning && tabKey === 'snapshots'} /> },
+      { key: 'diff', label: '差异对比', children: <DiffPanel runId={id} polling={isRunning && tabKey === 'diff'} /> },
+      { key: 'findings', label: '隐藏指令', children: <FindingsTable runId={id} polling={isRunning && tabKey === 'findings'} /> },
+      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
     ]
   } else if (kind === 'injection') {
     tabs = [
       { key: 'overview', label: '风险总览', children: <InjectionReportView report={reportData as InjectionReport} live={live} /> },
-      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} /> },
+      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
     ]
@@ -263,7 +292,7 @@ export default function RunDetail() {
       {data.run.status === 'interrupted' && <Alert type="warning" showIcon style={{ marginBottom: 14 }} message="服务重启导致测试中断，已保留此前结果。" />}
       {headerKpis}
       <div className="panel">
-        <Tabs items={tabs as any} destroyInactiveTabPane={false} />
+        <Tabs activeKey={tabKey} onChange={setTabKey} items={tabs as any} destroyInactiveTabPane={false} />
       </div>
     </>
   )

@@ -56,7 +56,7 @@ export default function SnapshotDrawer({ id, open, onClose }: { id?: number; ope
                   <Table
                     size="small"
                     rowKey={(_, i) => String(i)}
-                    pagination={{ pageSize: 20 }}
+                    pagination={{ pageSize: 200 }}
                     dataSource={sn.findings}
                     columns={[
                       { title: '级别', dataIndex: 'severity', width: 80, render: (v: string) => <SeverityTag severity={v} /> },

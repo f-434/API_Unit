@@ -82,10 +82,11 @@ export const api = {
   purgeRuns: (days: number) => post<{ deleted: number }>('/api/settings/purge', { days }),
 
   createRun: (kind: Kind, config: any) => post<{ id: string; run: Run }>('/api/runs', { kind, config }),
-  runs: (params: { kind?: string; limit?: number; offset?: number } = {}) => {
+  runs: (params: { kind?: string; status?: string; limit?: number; offset?: number } = {}) => {
     const q = new URLSearchParams()
     if (params.kind) q.set('kind', params.kind)
-    q.set('limit', String(params.limit ?? 50))
+    if (params.status) q.set('status', params.status)
+    q.set('limit', String(params.limit ?? 200))
     q.set('offset', String(params.offset ?? 0))
     return get<{ items: RunRow[]; total: number }>(`/api/runs?${q}`)
   },

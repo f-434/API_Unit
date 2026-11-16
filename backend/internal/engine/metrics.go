@@ -40,6 +40,10 @@ type modelState struct {
 	protocol   string
 	endpoint   string
 
+	// responseModels counts the model names the upstream reported for this
+	// requested model, so the UI can flag aliasing/redirects.
+	responseModels map[string]int64
+
 	completed int64
 	success   int64
 	failed    int64
@@ -72,9 +76,10 @@ type modelState struct {
 
 func newModelState(key string) *modelState {
 	return &modelState{
-		model:  key,
-		status: map[int]int64{},
-		errors: map[string]*model.ErrorGroup{},
+		model:          key,
+		status:         map[int]int64{},
+		errors:         map[string]*model.ErrorGroup{},
+		responseModels: map[string]int64{},
 	}
 }
 
@@ -102,6 +107,9 @@ type liveState struct {
 	models       map[string]*modelState
 	order        []string
 
+	targets     map[string]string // targetID -> targetName
+	targetOrder []string
+
 	recent []model.Item
 
 	series        map[int]*seriesAcc
@@ -120,6 +128,7 @@ func newLiveState(runID, kind string) *liveState {
 		status:        string(model.StatusRunning),
 		started:       time.Now(),
 		models:        map[string]*modelState{},
+		targets:       map[string]string{},
 		series:        map[int]*seriesAcc{},
 		activeSamples: map[int]*activeAcc{},
 		extra:         map[string]any{},
@@ -201,6 +210,20 @@ func (l *liveState) sampleActive(active int64) {
 func (l *liveState) record(it model.Item, endpoint string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// Track upstreams independently of the model map: the same model may be
+	// configured against more than one target.
+	if it.TargetID != "" || it.TargetName != "" {
+		tkey := it.TargetID
+		if tkey == "" {
+			tkey = it.TargetName
+		}
+		if _, ok := l.targets[tkey]; !ok {
+			l.targets[tkey] = it.TargetName
+			l.targetOrder = append(l.targetOrder, tkey)
+		} else if l.targets[tkey] == "" && it.TargetName != "" {
+			l.targets[tkey] = it.TargetName
+		}
+	}
 	key := it.Model
 	if key == "" {
 		key = "-"
@@ -250,6 +273,11 @@ func (l *liveState) record(it model.Item, endpoint string) {
 		ms.estimated++
 	}
 	ms.status[it.Status]++
+	if rm := it.ResponseModelName(); rm != "" {
+		if _, seen := ms.responseModels[rm]; seen || len(ms.responseModels) < model.MaxResponseModels {
+			ms.responseModels[rm]++
+		}
+	}
 	if ms.first.IsZero() {
 		ms.first = time.Now()
 	}
@@ -473,15 +501,16 @@ func (l *liveState) modelLives(elapsed time.Duration) []model.ModelLive {
 			d = elapsed
 		}
 		ml := model.ModelLive{
-			Model:       ms.model,
-			TargetName:  ms.targetName,
-			Protocol:    ms.protocol,
-			Completed:   ms.completed,
-			Success:     ms.success,
-			Failed:      ms.failed,
-			SuccessRate: pct(ms.success, ms.completed),
-			QPS:         perSecond(ms.success, d),
-			RPM:         perMinute(ms.success, d),
+			Model:          ms.model,
+			TargetName:     ms.targetName,
+			Protocol:       ms.protocol,
+			ResponseModels: model.TopNames(ms.responseModels, model.MaxResponseModels),
+			Completed:      ms.completed,
+			Success:        ms.success,
+			Failed:         ms.failed,
+			SuccessRate:    pct(ms.success, ms.completed),
+			QPS:            perSecond(ms.success, d),
+			RPM:            perMinute(ms.success, d),
 		}
 		if ms.success > 0 && len(ms.latenciesSam) > 0 {
 			ml.AvgLatency = sum(ms.latenciesSam) / float64(len(ms.latenciesSam))
@@ -604,11 +633,12 @@ func (l *liveState) finalAggregate(elapsedMs float64) (model.Aggregate, []model.
 	for _, k := range l.order {
 		ms := l.models[k]
 		m := model.ModelAggregate{
-			Model:      ms.model,
-			TargetID:   ms.targetID,
-			TargetName: ms.targetName,
-			Protocol:   ms.protocol,
-			Endpoint:   ms.endpoint,
+			Model:          ms.model,
+			TargetID:       ms.targetID,
+			TargetName:     ms.targetName,
+			Protocol:       ms.protocol,
+			Endpoint:       ms.endpoint,
+			ResponseModels: model.TopNames(ms.responseModels, model.MaxResponseModels),
 			Aggregate: model.Aggregate{
 				Total:       ms.completed,
 				Success:     ms.success,
@@ -657,6 +687,10 @@ func (l *liveState) headline(elapsedMs float64) model.RunSummary {
 		cost += l.models[k].cost
 		models = append(models, k)
 	}
+	targets := make([]model.TargetRef, 0, len(l.targetOrder))
+	for _, id := range l.targetOrder {
+		targets = append(targets, model.TargetRef{ID: id, Name: l.targets[id]})
+	}
 	return model.RunSummary{
 		Planned:     l.planned,
 		Total:       l.completed,
@@ -669,6 +703,7 @@ func (l *liveState) headline(elapsedMs float64) model.RunSummary {
 		ElapsedMs:   elapsedMs,
 		Cost:        cost,
 		Models:      models,
+		Targets:     targets,
 	}
 }
 

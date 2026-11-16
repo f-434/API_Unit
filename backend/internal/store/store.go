@@ -221,6 +221,24 @@ func (s *Store) ListTargets() ([]model.Target, error) {
 	return out, rows.Err()
 }
 
+// TargetNames returns id -> display name without decrypting any credentials.
+func (s *Store) TargetNames() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT id,name FROM targets`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) GetTarget(id string, withSecret bool) (*model.TargetSecret, error) {
 	var t model.TargetSecret
 	var enc string
@@ -607,16 +625,24 @@ type RunRow struct {
 	Summary model.RunSummary `json:"summary"`
 }
 
-func (s *Store) ListRuns(kind string, limit, offset int) ([]RunRow, int, error) {
-	if limit <= 0 || limit > 200 {
-		limit = 50
+func (s *Store) ListRuns(kind, status string, limit, offset int) ([]RunRow, int, error) {
+	if limit <= 0 {
+		limit = 200
 	}
-	where := "1=1"
+	if limit > 500 {
+		limit = 500
+	}
+	clauses := []string{"1=1"}
 	args := []any{}
 	if kind != "" {
-		where = "kind=?"
+		clauses = append(clauses, "kind=?")
 		args = append(args, kind)
 	}
+	if status != "" {
+		clauses = append(clauses, "status=?")
+		args = append(args, status)
+	}
+	where := strings.Join(clauses, " AND ")
 	var total int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM runs WHERE `+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
@@ -725,8 +751,11 @@ type ItemFilter struct {
 }
 
 func (s *Store) ListItems(f ItemFilter) ([]model.Item, int, error) {
-	if f.Limit <= 0 || f.Limit > 500 {
-		f.Limit = 100
+	if f.Limit <= 0 {
+		f.Limit = 200
+	}
+	if f.Limit > 500 {
+		f.Limit = 500
 	}
 	where := []string{"run_id=?"}
 	args := []any{f.RunID}
@@ -823,6 +852,11 @@ func scanItem(rows scanner, light bool) (model.Item, error) {
 	if metaJSON != "" {
 		_ = json.Unmarshal([]byte(metaJSON), &it.Meta)
 	}
+	// ResponseModel is persisted inside the meta blob so no schema migration
+	// is needed; restore it for items written before the field existed.
+	if it.ResponseModel == "" {
+		it.ResponseModel = it.ResponseModelName()
+	}
 	if light {
 		it.OutputText = ""
 		it.RequestJSON = ""
@@ -911,8 +945,11 @@ type SnapshotFilter struct {
 }
 
 func (s *Store) ListSnapshots(f SnapshotFilter) ([]model.Snapshot, int, error) {
-	if f.Limit <= 0 || f.Limit > 500 {
-		f.Limit = 100
+	if f.Limit <= 0 {
+		f.Limit = 200
+	}
+	if f.Limit > 500 {
+		f.Limit = 500
 	}
 	where := []string{"1=1"}
 	args := []any{}

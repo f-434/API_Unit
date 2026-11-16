@@ -92,8 +92,22 @@ func (m *Module) Validate(raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("一次最多测试 50 个模型")
 	}
 	c.Models = models
-	if strings.TrimSpace(c.Request.Prompt) == "" {
-		return nil, fmt.Errorf("请输入测试提示词")
+	seenPrompts := map[string]bool{}
+	promptIDs := make([]string, 0, len(c.PromptIDs))
+	for _, id := range c.PromptIDs {
+		id = strings.TrimSpace(id)
+		if id == "" || seenPrompts[id] {
+			continue
+		}
+		seenPrompts[id] = true
+		promptIDs = append(promptIDs, id)
+	}
+	if len(promptIDs) > 200 {
+		return nil, fmt.Errorf("提示词数量不能超过 200")
+	}
+	c.PromptIDs = promptIDs
+	if len(c.PromptIDs) == 0 && strings.TrimSpace(c.Request.Prompt) == "" {
+		return nil, fmt.Errorf("请输入测试提示词，或选择提示词库中的提示词")
 	}
 	if c.Request.MaxTokens <= 0 {
 		c.Request.MaxTokens = 256
@@ -159,9 +173,6 @@ func (m *Module) Validate(raw json.RawMessage) (any, error) {
 	if c.Load.Mode == "fixed" && int64(len(c.Models))*int64(c.Load.TotalRequests) > 200000 {
 		return nil, fmt.Errorf("总请求数（模型数×请求数）不能超过 200000")
 	}
-	if len(c.PromptIDs) > 200 {
-		return nil, fmt.Errorf("提示词数量不能超过 200")
-	}
 	if c.TokenizerStrategy == "" {
 		c.TokenizerStrategy = string(tokens.StrategyAuto)
 	}
@@ -186,11 +197,12 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 		if err != nil {
 			return err
 		}
-		if len(list) > 0 {
-			prompts = make([]promptItem, 0, len(list))
-			for _, p := range list {
-				prompts = append(prompts, promptItem{ID: p.ID, Name: p.Name, Text: p.Content})
-			}
+		if len(list) == 0 {
+			return fmt.Errorf("所选提示词不存在或已删除")
+		}
+		prompts = make([]promptItem, 0, len(list))
+		for _, p := range list {
+			prompts = append(prompts, promptItem{ID: p.ID, Name: p.Name, Text: p.Content})
 		}
 	}
 	if cfg.Load.Mode == "fixed" {

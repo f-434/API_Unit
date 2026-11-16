@@ -1,6 +1,6 @@
 import { Alert, Progress, Space, Table, Tag, Tooltip } from 'antd'
 import type { Aggregate, HistBucket, Live, ModelAggregate, ModelLive, SeriesPoint } from '../types'
-import { EmptyPanel, Kpi, ProtocolTag } from './common'
+import { EmptyPanel, Kpi, ProtocolTag, ResponseModelCell } from './common'
 import { BarChart, DonutChart, SeriesCharts } from './charts'
 import { fmtCost, fmtDuration, fmtInt, fmtMs, fmtNum, fmtPct, fmtTime, statusLabel, truncate } from '../format'
 import { stressPlan } from '../progress'
@@ -42,7 +42,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
   const modelLive: ModelLive[] = live?.models || []
 
   const modelRows = models && models.length ? models : modelLive.map(m => ({
-    model: m.model, targetName: m.targetName, protocol: m.protocol,
+    model: m.model, targetName: m.targetName, protocol: m.protocol, responseModels: m.responseModels,
     total: m.completed, success: m.success, failed: m.failed, successRate: m.successRate,
     qps: m.qps, rpm: m.rpm, latency: { avg: m.avgLatencyMs, p95: 0 }, ttft: { avg: m.ttftMs },
     tokens: { prompt: 0, completion: 0, cost: 0 },
@@ -119,6 +119,10 @@ export default function StressReportView({ aggregate, models, live, config }: {
           dataSource={modelRows}
           columns={[
             { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono" style={{ whiteSpace: 'nowrap' }}>{v}</span> },
+            {
+              title: '响应模型', width: 190,
+              render: (_: any, r: any) => <ResponseModelCell requested={r.model} models={r.responseModels} />,
+            },
             { title: '上游', dataIndex: 'targetName', width: 140 },
             { title: '协议', dataIndex: 'protocol', width: 110, render: (v: string) => <ProtocolTag protocol={v} /> },
             { title: '请求', dataIndex: 'total', width: 90 },
@@ -132,7 +136,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
             { title: 'Completion', width: 110, render: (_: any, r: any) => fmtInt(r.tokens?.completion) },
             { title: '成本', width: 100, render: (_: any, r: any) => fmtCost(r.tokens?.cost) },
           ] as any}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1400 }}
         />
       </div>
 
@@ -181,6 +185,10 @@ export default function StressReportView({ aggregate, models, live, config }: {
             dataSource={live.recent}
             columns={[
               { title: '模型', dataIndex: 'model', width: 170 },
+              {
+                title: '响应模型', width: 170,
+                render: (_: any, r: any) => <ResponseModelCell requested={r.model} models={[r.responseModel]} />,
+              },
               {
                 title: '状态', width: 100,
                 render: (_: any, r: any) => {

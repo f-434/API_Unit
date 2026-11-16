@@ -6,7 +6,7 @@ import {
   AppstoreOutlined, ExperimentOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
-import { Kpi, KindTag, PageHeader, StatusTag } from '../components/common'
+import { Kpi, KindTag, PageHeader, StatusTag, TargetTags } from '../components/common'
 import { fmtDuration, fmtPct, fmtTime } from '../format'
 
 const quick = [
@@ -18,7 +18,15 @@ const quick = [
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const { data: runs } = useQuery({ queryKey: ['runs', 'recent'], queryFn: () => api.runs({ limit: 8 }) })
+  const { data: runs } = useQuery({
+    queryKey: ['runs', 'recent'],
+    queryFn: () => api.runs({ limit: 8 }),
+    refetchOnMount: 'always',
+    refetchInterval: (query) => {
+      const items = (query.state.data as any)?.items as any[] | undefined
+      return items?.some(r => r.status === 'running' || r.status === 'queued') ? 4000 : false
+    },
+  })
   const { data: targets } = useQuery({ queryKey: ['targets'], queryFn: api.targets })
   const { data: prompts } = useQuery({ queryKey: ['prompts'], queryFn: api.prompts })
   const { data: attacks } = useQuery({ queryKey: ['attacks'], queryFn: api.attacks })
@@ -27,6 +35,7 @@ export default function Dashboard() {
 
   const cols = [
     { title: '类型', dataIndex: 'kind', width: 130, render: (v: string) => <KindTag kind={v} /> },
+    { title: '上游/供应商', dataIndex: ['summary', 'targets'], width: 220, render: (v: any) => <TargetTags targets={v} /> },
     { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => <StatusTag status={v} /> },
     { title: '模型', dataIndex: ['summary', 'models'], render: (v: string[]) => (v || []).slice(0, 3).map(m => <Tag key={m}>{m}</Tag>) },
     { title: '请求', width: 90, render: (_: any, r: any) => <span>{r.summary?.total ?? 0}</span> },
@@ -84,6 +93,7 @@ export default function Dashboard() {
           size="small"
           dataSource={runs?.items || []}
           columns={cols as any}
+          scroll={{ x: 1560 }}
           pagination={false}
           onRow={r => ({ onClick: () => navigate(`/runs/${r.id}`), style: { cursor: 'pointer' } })}
           locale={{ emptyText: '还没有测试记录，选择上方任一测试类型开始。' }}

@@ -9,7 +9,13 @@ import type { Item, ItemDetail } from '../types'
 import {
   errorTypeLabel, fmtCost, fmtInt, fmtMs, fmtPct, fmtTime, tokenSourceLabel, truncate, verdictColor, verdictLabel,
 } from '../format'
-import { CopyButton, EmptyPanel, JsonBlock, VerdictTag } from './common'
+import { CopyButton, EmptyPanel, JsonBlock, ResponseModelCell, VerdictTag } from './common'
+
+function actualModel(it: Item): string | undefined {
+  if (it.responseModel) return it.responseModel
+  const legacy = it.meta?.upstreamModel
+  return typeof legacy === 'string' ? legacy : undefined
+}
 
 function statusTag(it: Item) {
   if (it.status === 0) return <Tag color="default">网络/无响应</Tag>
@@ -32,6 +38,7 @@ function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: 
         <>
           <Descriptions size="small" bordered column={2} style={{ marginBottom: 14 }}>
             <Descriptions.Item label="模型"><span className="mono">{it.model}</span></Descriptions.Item>
+            <Descriptions.Item label="响应模型"><ResponseModelCell requested={it.model} models={[actualModel(it)]} /></Descriptions.Item>
             <Descriptions.Item label="上游">{it.targetName || '-'}</Descriptions.Item>
             <Descriptions.Item label="用例">{it.caseName || '-'}</Descriptions.Item>
             <Descriptions.Item label="分类">{it.category || '-'}</Descriptions.Item>
@@ -133,9 +140,9 @@ function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: 
   )
 }
 
-export default function RunItems({ runId, kind, models = [] }: { runId: string; kind: string; models?: string[] }) {
+export default function RunItems({ runId, kind, models = [], polling = false }: { runId: string; kind: string; models?: string[]; polling?: boolean }) {
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
+  const [pageSize, setPageSize] = useState(200)
   const [model, setModel] = useState<string>()
   const [onlyFail, setOnlyFail] = useState(false)
   const [verdict, setVerdict] = useState<string>()
@@ -149,6 +156,7 @@ export default function RunItems({ runId, kind, models = [] }: { runId: string; 
       limit: pageSize, offset: (page - 1) * pageSize, model,
       onlyFail: onlyFail ? 1 : undefined, verdict, q: q || undefined,
     }),
+    refetchInterval: polling ? 3000 : false,
   })
 
   const openDetail = (it: Item) => { setDetailId(it.id); setDetailOpen(true) }
@@ -157,6 +165,10 @@ export default function RunItems({ runId, kind, models = [] }: { runId: string; 
     { title: '#', dataIndex: 'index', width: 58, render: (_: any, it: Item) => <span className="muted">{it.index + 1}</span> },
     { title: '时间', dataIndex: 'startedAt', width: 150, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
     { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono">{v}</span> },
+    {
+      title: '响应模型', key: 'responseModel', width: 200,
+      render: (_: any, it: Item) => <ResponseModelCell requested={it.model} models={[actualModel(it)]} />,
+    },
     { title: '上游', dataIndex: 'targetName', width: 120, render: (v: string) => v || '-' },
     ...(kind !== 'stress' ? [{ title: '用例', dataIndex: 'caseName', width: 170 }] : []),
     ...(kind === 'injection' ? [{ title: '判定', dataIndex: 'verdict', width: 100, render: (v: string) => <VerdictTag verdict={v} /> }] : []),
@@ -192,18 +204,19 @@ export default function RunItems({ runId, kind, models = [] }: { runId: string; 
         <Space size={6}><Switch checked={onlyFail} onChange={v => { setOnlyFail(v); setPage(1) }} /> 只看失败</Space>
         <Input allowClear prefix={<SearchOutlined />} placeholder="搜索用例/模型/错误" value={q} onChange={e => { setQ(e.target.value); setPage(1) }} style={{ width: 240 }} />
         <Tag>{data?.total ?? 0} 条</Tag>
+        {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
       <Table
         rowKey="id"
         className="items-table"
         size="small"
-        loading={isLoading || isFetching}
+        loading={isLoading}
         dataSource={data?.items || []}
         columns={columns}
-        scroll={{ x: 1620 }}
+        scroll={{ x: 1840 }}
         pagination={{
           current: page, pageSize, total: data?.total || 0,
-          showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200],
+          showSizeChanger: true, pageSizeOptions: [200, 500],
           onChange: (p, ps) => { setPage(p); setPageSize(ps) },
         }}
         onRow={it => ({ onDoubleClick: () => openDetail(it), style: { cursor: 'pointer' } })}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Button, Empty, Space, Tag, Tooltip, Typography, message } from 'antd'
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons'
-import type { Kind } from '../types'
+import type { Kind, TargetRef } from '../types'
 import {
   kindColor, kindLabel, protocolLabel, severityColor, severityLabel, statusColor,
   statusLabel, verdictColor, verdictLabel,
@@ -41,6 +41,36 @@ export function ProtocolTag({ protocol }: { protocol?: string }) {
   const color = protocol === 'claude' ? 'orange' : protocol === 'gemini' ? 'purple' : protocol === 'openai' ? 'blue' : 'default'
   return <Tag color={color}>{protocolLabel(protocol)}</Tag>
 }
+
+/**
+ * Shows the model name(s) the upstream reported in its response. When the
+ * upstream maps the requested model to another one (e.g. Gemini modelVersion
+ * or a gateway redirect) the tags turn orange and explain the mismatch.
+ */
+export function ResponseModelCell({ requested, models, max = 3 }: {
+  requested?: string
+  models?: (string | null | undefined)[]
+  max?: number
+}) {
+  const list = Array.from(new Set((models || []).filter((m): m is string => !!m)))
+  if (!list.length) return <span className="muted">-</span>
+  const differs = !!requested && list.some(m => m !== requested)
+  const shown = list.slice(0, max)
+  return (
+    <Space size={4} wrap>
+      {shown.map(m => {
+        const tag = <Tag key={m} color={differs ? 'orange' : undefined} className="small-mono">{m}</Tag>
+        return differs ? (
+          <Tooltip key={m} title={`上游实际返回 ${m}，与请求模型 ${requested} 不一致`}>{tag}</Tooltip>
+        ) : tag
+      })}
+      {list.length > shown.length && (
+        <Tooltip title={list.join('、')}><Tag>+{list.length - shown.length}</Tag></Tooltip>
+      )}
+    </Space>
+  )
+}
+
 export function VerdictTag({ verdict }: { verdict?: string }) {
   if (!verdict) return <span className="muted">-</span>
   return <Tag color={verdictColor(verdict)}>{verdictLabel(verdict)}</Tag>
@@ -48,6 +78,23 @@ export function VerdictTag({ verdict }: { verdict?: string }) {
 export function SeverityTag({ severity }: { severity?: string }) {
   if (!severity) return <span className="muted">-</span>
   return <Tag color={severityColor(severity)}>{severityLabel(severity)}</Tag>
+}
+
+export function TargetTags({ targets, max = 3 }: { targets?: TargetRef[]; max?: number }) {
+  const names = Array.from(new Set((targets || []).map(t => t.name).filter(Boolean)))
+  if (!names.length) return <span className="muted">-</span>
+  const shown = names.slice(0, max)
+  const rest = names.slice(max)
+  return (
+    <Space size={4} wrap>
+      {shown.map(name => <Tag key={name}>{name}</Tag>)}
+      {rest.length > 0 && (
+        <Tooltip title={names.join('、')}>
+          <Tag>+{rest.length}</Tag>
+        </Tooltip>
+      )}
+    </Space>
+  )
 }
 
 export function CopyButton({ text, label }: { text?: string; label?: string }) {

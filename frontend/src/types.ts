@@ -2,6 +2,11 @@ export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection'
 export type Protocol = 'auto' | 'openai' | 'claude' | 'gemini'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'stopped' | 'failed' | 'interrupted'
 
+export interface TargetRef {
+  id: string
+  name: string
+}
+
 export interface Target {
   id: string
   name: string
@@ -131,6 +136,7 @@ export interface ModelAggregate {
   targetName?: string
   protocol: string
   endpoint?: string
+  responseModels?: string[]
   aggregate?: Aggregate
   total: number
   success: number
@@ -152,6 +158,7 @@ export interface ModelLive {
   model: string
   targetName?: string
   protocol: string
+  responseModels?: string[]
   completed: number
   success: number
   failed: number
@@ -189,6 +196,8 @@ export interface Item {
   targetId?: string
   targetName?: string
   model: string
+  /** Model the upstream actually reported in its response. */
+  responseModel?: string
   protocol: string
   caseId?: string
   caseName?: string
@@ -273,6 +282,7 @@ export interface RunSummary {
   elapsedMs: number
   cost?: number
   models?: string[]
+  targets?: TargetRef[]
   data?: any
 }
 
@@ -429,6 +439,7 @@ export interface AuditTargetAgg {
   targetLabel: string
   model: string
   protocol: string
+  responseModels?: string[]
   count: number
   success: number
   errors: number
@@ -501,6 +512,7 @@ export interface InjTargetAgg extends InjStat {
   targetLabel: string
   model: string
   protocol: string
+  responseModels?: string[]
 }
 export interface InjCategoryAgg extends InjStat { category: string }
 export interface InjCaseTarget extends InjStat {

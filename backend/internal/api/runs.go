@@ -43,9 +43,10 @@ func (s *Server) handleRunCreate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRunsList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	kind := q.Get("kind")
+	status := q.Get("status")
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
-	rows, total, err := s.store.ListRuns(kind, limit, offset)
+	rows, total, err := s.store.ListRuns(kind, status, limit, offset)
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -55,7 +56,82 @@ func (s *Server) handleRunsList(w http.ResponseWriter, r *http.Request) {
 		rows[i].Summary.Data = nil
 		backfillRPM(&rows[i].Summary)
 	}
+	s.fillRunTargets(rows)
 	writeJSON(w, http.StatusOK, map[string]any{"items": rows, "total": total})
+}
+
+// fillRunTargets adds upstream names for runs whose summary does not carry
+// them yet (queued/running runs and records created before the field existed).
+func (s *Server) fillRunTargets(rows []store.RunRow) {
+	need := false
+	for i := range rows {
+		if len(rows[i].Summary.Targets) == 0 {
+			need = true
+			break
+		}
+	}
+	if !need {
+		return
+	}
+	names, err := s.store.TargetNames()
+	if err != nil {
+		names = map[string]string{}
+	}
+	for i := range rows {
+		if len(rows[i].Summary.Targets) > 0 {
+			continue
+		}
+		rows[i].Summary.Targets = targetsFromConfig(rows[i].Config, names)
+	}
+}
+
+type runTargetConfig struct {
+	TargetID string `json:"targetId"`
+	Targets  []struct {
+		TargetID string `json:"targetId"`
+		Label    string `json:"label"`
+	} `json:"targets"`
+}
+
+func targetsFromConfig(raw string, names map[string]string) []model.TargetRef {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var cfg runTargetConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil
+	}
+	type entry struct{ id, label string }
+	entries := make([]entry, 0, 1+len(cfg.Targets))
+	if id := strings.TrimSpace(cfg.TargetID); id != "" {
+		entries = append(entries, entry{id: id})
+	}
+	for _, t := range cfg.Targets {
+		if id := strings.TrimSpace(t.TargetID); id != "" {
+			entries = append(entries, entry{id: id, label: t.Label})
+		}
+	}
+	seen := map[string]bool{}
+	out := make([]model.TargetRef, 0, len(entries))
+	for _, e := range entries {
+		if seen[e.id] {
+			continue
+		}
+		seen[e.id] = true
+		name := names[e.id]
+		if name == "" {
+			name = strings.TrimSpace(e.label)
+		}
+		if name == "" {
+			short := e.id
+			if len(short) > 12 {
+				short = short[:12]
+			}
+			name = "已删除上游 (" + short + ")"
+		}
+		out = append(out, model.TargetRef{ID: e.id, Name: name})
+	}
+	return out
 }
 
 func (s *Server) handleRunGet(w http.ResponseWriter, r *http.Request) {
@@ -172,7 +248,7 @@ func (s *Server) handleRunItems(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	if limit <= 0 {
-		limit = 100
+		limit = 200
 	}
 	if offset < 0 {
 		offset = 0

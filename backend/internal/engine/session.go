@@ -465,7 +465,7 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 			if oerr == nil {
 				localTokens = r.Tokens
 				localSource = r.Source
-				if it.PromptTokens == 0 {
+				if it.OK && it.PromptTokens == 0 {
 					it.PromptTokens = r.Tokens
 					estimated = true
 				}
@@ -475,7 +475,7 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 				localSource = r.Source
 				it.Meta = ensureMeta(it.Meta)
 				it.Meta["onlineCountError"] = oerr.Error()
-				if it.PromptTokens == 0 {
+				if it.OK && it.PromptTokens == 0 {
 					it.PromptTokens = r.Tokens
 					estimated = true
 				}
@@ -484,13 +484,13 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 			r := s.counter.CountChat(req.Model, msgs, strategy)
 			localTokens = r.Tokens
 			localSource = r.Source
-			if it.PromptTokens == 0 {
+			if it.OK && it.PromptTokens == 0 {
 				it.PromptTokens = r.Tokens
 				estimated = true
 			}
 		}
 	}
-	if it.CompletionTokens == 0 && out != nil {
+	if it.OK && it.CompletionTokens == 0 && out != nil {
 		textToCount := out.Text
 		if textToCount == "" {
 			textToCount = out.Reasoning
@@ -569,7 +569,11 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 		if out.ErrorCode != "" {
 			it.Meta["errorCode"] = out.ErrorCode
 		}
-		if out.UpstreamModel != "" && out.UpstreamModel != req.Model {
+		if out.UpstreamModel != "" {
+			// Keep the actual response model even when it matches the request:
+			// the UI shows it as a first-class column and older runs only have
+			// the meta copy.
+			it.ResponseModel = out.UpstreamModel
 			it.Meta["upstreamModel"] = out.UpstreamModel
 		}
 	}

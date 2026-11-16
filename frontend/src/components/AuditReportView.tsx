@@ -1,6 +1,6 @@
 import { Alert, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { AuditCell, AuditReport } from '../types'
-import { Kpi, EmptyPanel, VerdictTag } from './common'
+import { Kpi, EmptyPanel, ResponseModelCell, VerdictTag } from './common'
 import {
   auditCellStats, fmtCost, fmtMs, fmtNum, fmtPct, fmtInt, requestSuccessRate, targetAuditStats,
 } from '../format'
@@ -17,7 +17,7 @@ function CellView({ c }: { c?: AuditCell }) {
       </Space>
       <div className="muted" style={{ fontSize: 11.5 }}>
         Δ {fmtPct(c.deltaPct)} · 波动 {fmtPct(c.spreadPct)}
-        {c.localTokens > 0 && <> · 本地偏差 {fmtPct(c.overheadPct)}</>}
+        {c.localTokens > 0 && c.status !== 'error' && c.success > 0 && c.avgInput > 0 && <> · 本地偏差 {fmtPct(c.overheadPct)}</>}
       </div>
       <div className="muted" style={{ fontSize: 11.5 }}>
         {c.success}/{c.count} 成功 · {fmtMs(c.avgLatencyMs)}
@@ -31,20 +31,26 @@ export default function AuditReportView({ report, showCharts = true }: { report?
   if (!report) return <EmptyPanel text="审计报告尚未生成（测试运行中或已中断）。" />
   const audit = auditCellStats(report)
   const reqRate = requestSuccessRate(report)
-  const targetCols = report.targets.map(t => ({
-    title: (
-      <div>
-        <div>{t.targetLabel}</div>
-        <div className="muted" style={{ fontWeight: 400, fontSize: 11 }}>{t.model}</div>
-      </div>
-    ),
-    key: `t_${t.targetIndex}`,
-    width: 220,
-    render: (_: any, row: any) => {
-      const cell = row.cells.find((c: AuditCell) => c.targetIndex === t.targetIndex)
-      return <CellView c={cell} />
-    },
-  }))
+  const targetCols = report.targets.map(t => {
+    const actual = (t.responseModels || []).filter(m => m && m !== t.model)
+    return {
+      title: (
+        <div>
+          <div>{t.targetLabel}</div>
+          <div className="muted" style={{ fontWeight: 400, fontSize: 11 }}>{t.model}</div>
+          {actual.length > 0 && (
+            <div style={{ fontWeight: 400, fontSize: 11, color: '#d97706' }}>响应 {actual.join('、')}</div>
+          )}
+        </div>
+      ),
+      key: `t_${t.targetIndex}`,
+      width: 220,
+      render: (_: any, row: any) => {
+        const cell = row.cells.find((c: AuditCell) => c.targetIndex === t.targetIndex)
+        return <CellView c={cell} />
+      },
+    }
+  })
 
   return (
     <div>
@@ -80,6 +86,10 @@ export default function AuditReportView({ report, showCharts = true }: { report?
           columns={[
             { title: '目标', dataIndex: 'targetLabel', width: 160 },
             { title: '模型', dataIndex: 'model', render: (v: string) => <span className="mono">{v}</span> },
+            {
+              title: '响应模型', width: 190,
+              render: (_: any, t: any) => <ResponseModelCell requested={t.model} models={t.responseModels} />,
+            },
             { title: '请求', dataIndex: 'count', width: 80 },
             { title: '成功', dataIndex: 'success', width: 80 },
             {
@@ -140,7 +150,7 @@ export default function AuditReportView({ report, showCharts = true }: { report?
             rowKey={(r, i) => `${r.promptId}-${r.targetLabel}-${i}`}
             size="small"
             dataSource={report.anomalies}
-            pagination={{ pageSize: 20 }}
+            pagination={{ pageSize: 200 }}
             columns={[
               { title: '提示词', dataIndex: 'promptName', width: 190 },
               { title: '目标', width: 190, render: (_: any, r) => <span>{r.targetLabel} <span className="muted small-mono">{r.model}</span></span> },

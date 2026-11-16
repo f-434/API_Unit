@@ -23,12 +23,12 @@ type TargetSpec struct {
 }
 
 type JudgeConfig struct {
-	Mode      string  `json:"mode"` // rule | llm | hybrid
-	TargetID  string  `json:"targetId"`
-	Model     string  `json:"model"`
-	MaxTokens int     `json:"maxTokens"`
-	TimeoutMs int     `json:"timeoutMs"`
-	Rubric    string  `json:"rubric"`
+	Mode      string `json:"mode"` // rule | llm | hybrid
+	TargetID  string `json:"targetId"`
+	Model     string `json:"model"`
+	MaxTokens int    `json:"maxTokens"`
+	TimeoutMs int    `json:"timeoutMs"`
+	Rubric    string `json:"rubric"`
 }
 
 type Config struct {
@@ -183,11 +183,12 @@ type caseAcc struct {
 type builder struct {
 	mu sync.Mutex
 
-	overall    statAcc
-	targets    map[int]*statAcc
-	categories map[string]*statAcc
-	cases      map[string]*caseAcc
-	catOrder   []string
+	overall        statAcc
+	targets        map[int]*statAcc
+	targetResponse map[int]map[string]int64
+	categories     map[string]*statAcc
+	cases          map[string]*caseAcc
+	catOrder       []string
 
 	judgeTokens  int
 	judgeCost    float64
@@ -197,9 +198,27 @@ type builder struct {
 
 func newBuilder() *builder {
 	return &builder{
-		targets:    map[int]*statAcc{},
-		categories: map[string]*statAcc{},
-		cases:      map[string]*caseAcc{},
+		targets:        map[int]*statAcc{},
+		targetResponse: map[int]map[string]int64{},
+		categories:     map[string]*statAcc{},
+		cases:          map[string]*caseAcc{},
+	}
+}
+
+// noteResponse records the model the upstream actually returned for a target.
+func (b *builder) noteResponse(ti int, modelName string) {
+	if modelName == "" {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	m := b.targetResponse[ti]
+	if m == nil {
+		m = map[string]int64{}
+		b.targetResponse[ti] = m
+	}
+	if _, seen := m[modelName]; seen || len(m) < model.MaxResponseModels {
+		m[modelName]++
 	}
 }
 
@@ -285,8 +304,8 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 	b := newBuilder()
 
 	type job struct {
-		ti int
-		a  model.Attack
+		ti  int
+		a   model.Attack
 		rep int
 	}
 	jobs := make(chan job, 64)
@@ -390,6 +409,7 @@ func (m *Module) loadAttacks(cfg *Config) ([]model.Attack, error) {
 }
 
 func applyVerdict(ctx context.Context, sess *engine.Session, b *builder, judge *Judge, cfg *Config, ti int, spec TargetSpec, attack model.Attack, it *model.Item) {
+	b.noteResponse(ti, it.ResponseModelName())
 	if !it.OK {
 		it.Verdict = "error"
 		it.Judge = &model.JudgeVerdict{Method: "rule", Verdict: "error", Reason: it.ErrorMessage}
@@ -498,11 +518,12 @@ func (s *Stat) fromAcc(a statAcc) {
 }
 
 type TargetAgg struct {
-	TargetIndex int    `json:"targetIndex"`
-	TargetID    string `json:"targetId"`
-	TargetLabel string `json:"targetLabel"`
-	Model       string `json:"model"`
-	Protocol    string `json:"protocol"`
+	TargetIndex    int      `json:"targetIndex"`
+	TargetID       string   `json:"targetId"`
+	TargetLabel    string   `json:"targetLabel"`
+	Model          string   `json:"model"`
+	Protocol       string   `json:"protocol"`
+	ResponseModels []string `json:"responseModels,omitempty"`
 	Stat
 }
 
@@ -522,27 +543,27 @@ type CaseTargetStat struct {
 }
 
 type CaseRow struct {
-	AttackID  string           `json:"attackId"`
-	AttackName string          `json:"attackName"`
-	Category  string           `json:"category"`
-	Severity  string           `json:"severity"`
-	Targets   []CaseTargetStat `json:"targets"`
-	Stat      Stat             `json:"overall"`
+	AttackID   string           `json:"attackId"`
+	AttackName string           `json:"attackName"`
+	Category   string           `json:"category"`
+	Severity   string           `json:"severity"`
+	Targets    []CaseTargetStat `json:"targets"`
+	Stat       Stat             `json:"overall"`
 }
 
 type Report struct {
-	Mode          string        `json:"mode"`
-	JudgeModel    string        `json:"judgeModel,omitempty"`
-	JudgeAvailable bool         `json:"judgeAvailable"`
-	Overall       Stat          `json:"overall"`
-	Targets       []TargetAgg   `json:"targets"`
-	Categories    []CategoryAgg `json:"categories"`
-	Cases         []CaseRow     `json:"cases"`
-	JudgeTokens   int           `json:"judgeTokens"`
-	JudgeCost     float64       `json:"judgeCost"`
-	RuleDecisive  int           `json:"ruleDecisive"`
-	LLMJudged     int           `json:"llmJudged"`
-	Notes         []string      `json:"notes"`
+	Mode           string        `json:"mode"`
+	JudgeModel     string        `json:"judgeModel,omitempty"`
+	JudgeAvailable bool          `json:"judgeAvailable"`
+	Overall        Stat          `json:"overall"`
+	Targets        []TargetAgg   `json:"targets"`
+	Categories     []CategoryAgg `json:"categories"`
+	Cases          []CaseRow     `json:"cases"`
+	JudgeTokens    int           `json:"judgeTokens"`
+	JudgeCost      float64       `json:"judgeCost"`
+	RuleDecisive   int           `json:"ruleDecisive"`
+	LLMJudged      int           `json:"llmJudged"`
+	Notes          []string      `json:"notes"`
 }
 
 func buildReport(cfg *Config, attacks []model.Attack, b *builder, judgeAvailable bool) *Report {
@@ -563,7 +584,10 @@ func buildReport(cfg *Config, attacks []model.Attack, b *builder, judgeAvailable
 		if acc == nil {
 			acc = &statAcc{}
 		}
-		ta := TargetAgg{TargetIndex: i, TargetID: t.TargetID, TargetLabel: t.Label, Model: t.Model, Protocol: t.Protocol}
+		ta := TargetAgg{
+			TargetIndex: i, TargetID: t.TargetID, TargetLabel: t.Label, Model: t.Model, Protocol: t.Protocol,
+			ResponseModels: model.TopNames(b.targetResponse[i], model.MaxResponseModels),
+		}
 		ta.fromAcc(*acc)
 		rep.Targets = append(rep.Targets, ta)
 	}

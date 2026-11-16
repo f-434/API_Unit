@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -67,6 +68,12 @@ type Target struct {
 type TargetSecret struct {
 	Target
 	APIKey string `json:"-"`
+}
+
+// TargetRef is a lightweight upstream reference persisted in run summaries.
+type TargetRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 func MaskKey(key string) string {
@@ -145,19 +152,20 @@ type Run struct {
 // RunSummary is the headline persisted for every run. Data holds the
 // module-specific report payload (stress aggregate, audit matrix, ASR tables).
 type RunSummary struct {
-	Planned     int64    `json:"planned"`
-	Total       int64    `json:"total"`
-	Success     int64    `json:"success"`
-	Failed      int64    `json:"failed"`
-	Canceled    int64    `json:"canceled"`
-	SuccessRate float64  `json:"successRate"`
-	QPS         float64  `json:"qps"`
-	RPM         float64  `json:"rpm"`
-	ASR         float64  `json:"asr,omitempty"`
-	ElapsedMs   float64  `json:"elapsedMs"`
-	Cost        float64  `json:"cost,omitempty"`
-	Models      []string `json:"models,omitempty"`
-	Data        any      `json:"data,omitempty"`
+	Planned     int64       `json:"planned"`
+	Total       int64       `json:"total"`
+	Success     int64       `json:"success"`
+	Failed      int64       `json:"failed"`
+	Canceled    int64       `json:"canceled"`
+	SuccessRate float64     `json:"successRate"`
+	QPS         float64     `json:"qps"`
+	RPM         float64     `json:"rpm"`
+	ASR         float64     `json:"asr,omitempty"`
+	ElapsedMs   float64     `json:"elapsedMs"`
+	Cost        float64     `json:"cost,omitempty"`
+	Models      []string    `json:"models,omitempty"`
+	Targets     []TargetRef `json:"targets,omitempty"`
+	Data        any         `json:"data,omitempty"`
 }
 
 type JudgeVerdict struct {
@@ -189,12 +197,16 @@ type Item struct {
 	TargetID   string `json:"targetId,omitempty"`
 	TargetName string `json:"targetName,omitempty"`
 	Model      string `json:"model"`
-	Protocol   string `json:"protocol"`
-	CaseID     string `json:"caseId,omitempty"`
-	CaseName   string `json:"caseName,omitempty"`
-	Category   string `json:"category,omitempty"`
-	Severity   string `json:"severity,omitempty"`
-	Repetition int    `json:"repetition,omitempty"`
+	// ResponseModel is the model name the upstream actually reported in its
+	// response. It can differ from Model when a gateway or the provider maps
+	// the requested name to another model (e.g. Gemini's modelVersion).
+	ResponseModel string `json:"responseModel,omitempty"`
+	Protocol      string `json:"protocol"`
+	CaseID        string `json:"caseId,omitempty"`
+	CaseName      string `json:"caseName,omitempty"`
+	Category      string `json:"category,omitempty"`
+	Severity      string `json:"severity,omitempty"`
+	Repetition    int    `json:"repetition,omitempty"`
 
 	StartedAt     int64   `json:"startedAt"`
 	StartOffsetMs float64 `json:"startOffsetMs"`
@@ -244,6 +256,45 @@ type ItemDetail struct {
 
 func (it Item) Detail() ItemDetail {
 	return ItemDetail{Item: it, OutputText: it.OutputText, RequestJSON: it.RequestJSON, ResponseJSON: it.ResponseJSON}
+}
+
+// ResponseModelName returns the model the upstream reported. Items persisted
+// before the ResponseModel field existed only carry it in the meta blob.
+func (it Item) ResponseModelName() string {
+	if it.ResponseModel != "" {
+		return it.ResponseModel
+	}
+	if it.Meta != nil {
+		if v, ok := it.Meta["upstreamModel"].(string); ok {
+			return v
+		}
+	}
+	return ""
+}
+
+// MaxResponseModels caps how many distinct response models are summarized for
+// one requested model, so a load-balanced upstream cannot grow the report.
+const MaxResponseModels = 8
+
+// TopNames returns the keys of counts ordered by frequency (desc) then name.
+func TopNames(counts map[string]int64, limit int) []string {
+	if len(counts) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(counts))
+	for k := range counts {
+		out = append(out, k)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if counts[out[i]] == counts[out[j]] {
+			return out[i] < out[j]
+		}
+		return counts[out[i]] > counts[out[j]]
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 type Stats struct {
@@ -329,22 +380,26 @@ type ModelAggregate struct {
 	TargetName string `json:"targetName,omitempty"`
 	Protocol   string `json:"protocol"`
 	Endpoint   string `json:"endpoint,omitempty"`
+	// ResponseModels lists the distinct model names the upstream reported for
+	// this requested model, most frequent first.
+	ResponseModels []string `json:"responseModels,omitempty"`
 	Aggregate
 }
 
 type ModelLive struct {
-	Model       string  `json:"model"`
-	TargetName  string  `json:"targetName,omitempty"`
-	Protocol    string  `json:"protocol"`
-	Completed   int64   `json:"completed"`
-	Success     int64   `json:"success"`
-	Failed      int64   `json:"failed"`
-	Active      int     `json:"active"`
-	AvgLatency  float64 `json:"avgLatencyMs"`
-	TTFT        float64 `json:"ttftMs"`
-	QPS         float64 `json:"qps"`
-	RPM         float64 `json:"rpm"`
-	SuccessRate float64 `json:"successRate"`
+	Model          string   `json:"model"`
+	TargetName     string   `json:"targetName,omitempty"`
+	Protocol       string   `json:"protocol"`
+	ResponseModels []string `json:"responseModels,omitempty"`
+	Completed      int64    `json:"completed"`
+	Success        int64    `json:"success"`
+	Failed         int64    `json:"failed"`
+	Active         int      `json:"active"`
+	AvgLatency     float64  `json:"avgLatencyMs"`
+	TTFT           float64  `json:"ttftMs"`
+	QPS            float64  `json:"qps"`
+	RPM            float64  `json:"rpm"`
+	SuccessRate    float64  `json:"successRate"`
 }
 
 // Live is the bounded snapshot pushed over SSE every 500ms.

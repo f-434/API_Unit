@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Navigate,
   Route,
@@ -37,6 +37,8 @@ import RequestDiffNew from "./pages/RequestDiffNew";
 import InjectionNew from "./pages/InjectionNew";
 import History from "./pages/History";
 import RunDetail from "./pages/RunDetail";
+import QuickActionsFab, { type QuickAction } from "./components/QuickActionsFab";
+import TargetFormModal from "./components/TargetFormModal";
 
 const { Sider, Header, Content } = Layout;
 
@@ -77,6 +79,15 @@ function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [targetModalOpen, setTargetModalOpen] = useState(false);
+  const quickActions = useMemo<QuickAction[]>(() => [
+    {
+      key: "add-target",
+      label: "快速添加上游",
+      icon: <CloudServerOutlined />,
+      onClick: () => setTargetModalOpen(true),
+    },
+  ], []);
   const { data: meta } = useQuery({
     queryKey: ["meta"],
     queryFn: api.meta,
@@ -117,7 +128,8 @@ function Shell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <Layout className="app-shell">
+    <>
+      <Layout className="app-shell">
       <Sider
         className="app-sider"
         theme="light"
@@ -174,7 +186,10 @@ function Shell({ children }: { children: React.ReactNode }) {
         </Header>
         <Content className="app-content">{children}</Content>
       </Layout>
-    </Layout>
+      </Layout>
+      <QuickActionsFab actions={quickActions} />
+      <TargetFormModal open={targetModalOpen} onClose={() => setTargetModalOpen(false)} />
+    </>
   );
 }
 

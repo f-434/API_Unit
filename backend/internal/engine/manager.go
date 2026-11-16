@@ -138,14 +138,17 @@ func (m *Manager) execute(mod Module, sess *Session, cfg any) {
 			summary.Cost = base.Cost
 			summary.Planned = base.Planned
 			summary.Models = base.Models
+			summary.Targets = base.Targets
 		}
 		if summary.ElapsedMs == 0 {
 			summary.ElapsedMs = base.ElapsedMs
 		}
-		sess.FinishSession(status, errMsg)
+		// Persist the terminal run before broadcasting "done" over SSE so a
+		// client that reacts to the event cannot observe a stale running row.
 		if err := m.store.FinishRun(sess.RunID, status, summary, errMsg); err != nil {
 			log.Printf("finish run %s: %v", sess.RunID, err)
 		}
+		sess.FinishSession(status, errMsg)
 		m.mu.Lock()
 		delete(m.sessions, sess.RunID)
 		m.active--

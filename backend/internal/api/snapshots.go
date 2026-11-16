@@ -19,7 +19,7 @@ func (s *Server) handleSnapshotsList(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
 	if limit <= 0 {
-		limit = 100
+		limit = 200
 	}
 	if offset < 0 {
 		offset = 0

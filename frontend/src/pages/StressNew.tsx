@@ -18,6 +18,8 @@ export default function StressNew() {
   const { data: meta } = useQuery({ queryKey: ['meta'], queryFn: api.meta })
   const { data: prompts } = useQuery({ queryKey: ['prompts'], queryFn: api.prompts })
   const targetId = Form.useWatch('targetId', form)
+  const promptIds = (Form.useWatch('promptIds', form) || []) as string[]
+  const hasLibraryPrompts = promptIds.length > 0
   const mode = Form.useWatch('mode', form) || 'fixed'
   const models = (Form.useWatch('models', form) || []) as string[]
   const total = Form.useWatch('totalRequests', form) || 0
@@ -35,7 +37,7 @@ export default function StressNew() {
         promptIds: v.promptIds || [],
         request: {
           systemPrompt: v.systemPrompt || '',
-          prompt: v.prompt,
+          prompt: hasLibraryPrompts ? '' : v.prompt,
           maxTokens: v.maxTokens,
           temperature: v.temperature ?? null,
           topP: v.topP ?? null,
@@ -122,8 +124,14 @@ export default function StressNew() {
               <Form.Item name="systemPrompt" label="System Prompt"><Input.TextArea rows={4} placeholder="可留空" /></Form.Item>
             </Col>
             <Col xs={24} lg={12}>
-              <Form.Item name="prompt" label="User Prompt" rules={[{ required: true, message: '请输入提示词' }]}>
-                <Input.TextArea rows={4} />
+              <Form.Item
+                name="prompt"
+                label="User Prompt"
+                dependencies={['promptIds']}
+                rules={hasLibraryPrompts ? [] : [{ required: true, message: '请输入提示词' }]}
+                extra={hasLibraryPrompts ? '已选择提示词轮换，本次测试按请求序号轮换使用上方提示词，此项不生效。' : undefined}
+              >
+                <Input.TextArea rows={4} disabled={hasLibraryPrompts} placeholder={hasLibraryPrompts ? '已使用上方提示词轮换' : undefined} />
               </Form.Item>
             </Col>
           </Row>

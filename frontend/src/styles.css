@@ -130,3 +130,102 @@ a { color: #165dff; }
 .items-table .ant-table-tbody > tr > td.ant-table-cell-ellipsis { overflow: hidden; text-overflow: ellipsis; }
 .ant-card { box-shadow: 0 1px 2px rgba(15, 23, 42, .02); }
 .ant-card .ant-card-head { border-bottom-color: #f0f1f3; }
+
+/* Edge-docked quick-action drawer. Fixed to the viewport so it stays put
+   while the content pane scrolls; z-index stays below antd Modal (1000).
+   Collapsed it shows a small arrow handle at the right edge; hover slides
+   the panel out to the left, leaving slides it back. */
+.quick-fab-root {
+  position: fixed;
+  z-index: 900;
+  user-select: none;
+  touch-action: none;
+}
+.quick-fab-handle {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #e5e6eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #165dff;
+  cursor: grab;
+  touch-action: none;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .12);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.quick-fab-handle:hover { border-color: #bedaff; box-shadow: 0 8px 22px rgba(22, 93, 255, .18); }
+.quick-fab-handle .anticon { font-size: 12px; }
+.quick-fab-root.docked .quick-fab-handle { border-radius: 10px 0 0 10px; border-right: 0; }
+.quick-fab-root.floating .quick-fab-handle { border-radius: 10px; }
+.quick-fab-root.dragging .quick-fab-handle { cursor: grabbing; }
+.quick-fab-panel {
+  position: absolute;
+  top: 50%;
+  width: 200px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, .16);
+  max-height: 60vh;
+  overflow-y: auto;
+  opacity: 0;
+  pointer-events: none;
+}
+.quick-fab-root.docked .quick-fab-panel {
+  right: calc(100% + 8px);
+  transform: translate(calc(100% + 8px), -50%);
+  transition: transform .24s cubic-bezier(.2, .8, .2, 1), opacity .18s ease;
+}
+.quick-fab-root.docked .quick-fab-panel.open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%);
+}
+.quick-fab-root.floating .quick-fab-panel {
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  transition: opacity .14s ease;
+}
+.quick-fab-root.floating .quick-fab-panel--left {
+  left: auto;
+  right: calc(100% + 8px);
+}
+.quick-fab-root.floating .quick-fab-panel.open {
+  opacity: 1;
+  pointer-events: auto;
+  animation: quick-fab-in .14s ease-out;
+}
+.quick-fab-root.floating .quick-fab-panel--left.open { animation-name: quick-fab-in-left; }
+.quick-fab-panel-title {
+  padding: 4px 8px 8px;
+  color: #86909c;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .3px;
+}
+.quick-fab-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #1d2129;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.quick-fab-item:hover { background: #f2f3f5; }
+.quick-fab-item:disabled { opacity: .5; cursor: not-allowed; }
+.quick-fab-item-icon { display: inline-flex; color: #165dff; font-size: 14px; }
+.quick-fab-handle:focus-visible, .quick-fab-item:focus-visible { outline: 2px solid #4080ff; outline-offset: 2px; }
+@keyframes quick-fab-in { from { opacity: 0; transform: translate(4px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+@keyframes quick-fab-in-left { from { opacity: 0; transform: translate(-4px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }

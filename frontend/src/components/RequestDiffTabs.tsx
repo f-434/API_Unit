@@ -24,18 +24,19 @@ function snapshotLabel(s: Snapshot, currentRunId: string) {
   return `${scope} #${s.id} · ${s.targetLabel} · ${s.model} · ${s.caseName} · rep${s.repetition}`
 }
 
-export function SnapshotTable({ runId, report }: { runId: string; report?: RequestDiffReport }) {
+export function SnapshotTable({ runId, report, polling = false }: { runId: string; report?: RequestDiffReport; polling?: boolean }) {
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(200)
   const [caseId, setCaseId] = useState<string>()
   const [model, setModel] = useState<string>()
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [snapshotId, setSnapshotId] = useState<number>()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ['runSnapshots', runId, page, pageSize, caseId, model, q],
     queryFn: () => api.runSnapshots(runId, { limit: pageSize, offset: (page - 1) * pageSize, caseId, model, q }),
+    refetchInterval: polling ? 5000 : false,
   })
   const models = report?.targets?.map(t => t.model) || []
 
@@ -48,6 +49,7 @@ export function SnapshotTable({ runId, report }: { runId: string; report?: Reque
           options={Array.from(new Set(models)).map(m => ({ value: m, label: m }))} showSearch />
         <Input allowClear prefix={<SearchOutlined />} placeholder="搜索用例/标签/请求 ID/SHA" value={q} onChange={e => { setQ(e.target.value); setPage(1) }} style={{ width: 280 }} />
         <Tag color="blue">{data?.total ?? 0} 份快照（当前任务）</Tag>
+        {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
       <div className="muted" style={{ marginBottom: 8 }}>
         仅显示当前任务的请求快照；跨任务对比请到「差异对比」加载历史快照。
@@ -58,7 +60,7 @@ export function SnapshotTable({ runId, report }: { runId: string; report?: Reque
         loading={isLoading}
         dataSource={data?.items || []}
         scroll={{ x: 1200 }}
-        pagination={{ current: page, pageSize, total: data?.total || 0, showSizeChanger: true, onChange: (p, ps) => { setPage(p); setPageSize(ps) } }}
+        pagination={{ current: page, pageSize, total: data?.total || 0, showSizeChanger: true, pageSizeOptions: [200, 500], onChange: (p, ps) => { setPage(p); setPageSize(ps) } }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 70 },
           { title: '请求时间', dataIndex: 'requestTimeMs', width: 160, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
@@ -85,15 +87,16 @@ export function SnapshotTable({ runId, report }: { runId: string; report?: Reque
   )
 }
 
-export function FindingsTable({ runId }: { runId: string }) {
+export function FindingsTable({ runId, polling = false }: { runId: string; polling?: boolean }) {
   const [severity, setSeverity] = useState<string>()
   const [category, setCategory] = useState<string>()
   const [q, setQ] = useState('')
   const [open, setOpen] = useState(false)
   const [snapshotId, setSnapshotId] = useState<number>()
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ['snapshotsForFindings', runId],
     queryFn: () => api.runSnapshots(runId, { limit: 500 }),
+    refetchInterval: polling ? 5000 : false,
   })
   const rows = useMemo(() => {
     const out: any[] = []
@@ -125,6 +128,7 @@ export function FindingsTable({ runId }: { runId: string }) {
         <Select allowClear placeholder="分类" value={category} onChange={setCategory} style={{ width: 170 }} options={categories.map(c => ({ value: c, label: categoryLabel(c) }))} />
         <Input allowClear prefix={<SearchOutlined />} placeholder="搜索规则/证据/用例" value={q} onChange={e => setQ(e.target.value)} style={{ width: 260 }} />
         <Tag color="red">线索 {rows.length}</Tag>
+        {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
       <Table
         rowKey={(r, i) => `${r.snapshot.id}-${i}`}
@@ -132,7 +136,7 @@ export function FindingsTable({ runId }: { runId: string }) {
         loading={isLoading}
         dataSource={rows}
         scroll={{ x: 1300 }}
-        pagination={{ pageSize: 30 }}
+        pagination={{ pageSize: 200 }}
         columns={[
           { title: '级别', dataIndex: 'severity', width: 80, render: (v: string) => <SeverityTag severity={v} /> },
           { title: '分类', dataIndex: 'category', width: 140, render: (v: string) => <Tag>{categoryLabel(v)}</Tag> },
@@ -157,7 +161,7 @@ function changeSummary(changes: DiffChange[], op: string) {
   return changes.filter(c => c.op === op)
 }
 
-export function DiffPanel({ runId }: { runId: string }) {
+export function DiffPanel({ runId, polling = false }: { runId: string; polling?: boolean }) {
   const [localSnapshots, setLocalSnapshots] = useState<Snapshot[]>([])
   const [historySnapshots, setHistorySnapshots] = useState<Snapshot[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
@@ -170,6 +174,7 @@ export function DiffPanel({ runId }: { runId: string }) {
   const { data: local } = useQuery({
     queryKey: ['diffSnapshots', runId],
     queryFn: () => api.runSnapshots(runId, { limit: 500 }),
+    refetchInterval: polling ? 5000 : false,
   })
 
   useEffect(() => {
@@ -358,7 +363,7 @@ export function DiffPanel({ runId }: { runId: string }) {
               rowKey={(r, i) => `${r.path}-${i}`}
               size="small"
               dataSource={result.result.changes}
-              pagination={{ pageSize: 30 }}
+              pagination={{ pageSize: 200 }}
               scroll={{ x: 1200 }}
               onRow={r => ({ onClick: () => setActivePath(r.path), style: { cursor: 'pointer' } })}
               rowClassName={r => r.path === activePath ? 'ant-table-row-selected' : ''}

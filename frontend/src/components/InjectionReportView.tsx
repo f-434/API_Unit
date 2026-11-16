@@ -1,6 +1,6 @@
 import { Alert, Space, Table, Tag } from 'antd'
 import type { InjectionReport, Live } from '../types'
-import { EmptyPanel, Kpi, SeverityTag, VerdictTag } from './common'
+import { EmptyPanel, Kpi, ResponseModelCell, SeverityTag, VerdictTag } from './common'
 import { BarChart, DonutChart } from './charts'
 import { categoryLabel, fmtCost, fmtPct, fmtInt, verdictLabel } from '../format'
 
@@ -83,6 +83,10 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
             columns={[
               { title: '目标', dataIndex: 'targetLabel', width: 170 },
               { title: '模型', dataIndex: 'model', render: (v: string) => <span className="mono">{v}</span> },
+              {
+                title: '响应模型', width: 190,
+                render: (_: any, t: any) => <ResponseModelCell requested={t.model} models={t.responseModels} />,
+              },
               { title: '测试数', dataIndex: 'total', width: 90 },
               { title: '注入成功', dataIndex: 'success', width: 100, render: (v: number) => <span style={{ color: v ? '#dc2626' : undefined }}>{v}</span> },
               { title: '已防御', dataIndex: 'blocked', width: 90 },
@@ -121,7 +125,7 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
             rowKey="attackId"
             size="small"
             dataSource={report.cases}
-            pagination={{ pageSize: 20 }}
+            pagination={{ pageSize: 200 }}
             expandable={{
               expandedRowRender: row => (
                 <Table

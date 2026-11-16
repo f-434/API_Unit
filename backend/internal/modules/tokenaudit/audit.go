@@ -18,26 +18,26 @@ import (
 )
 
 type TargetSpec struct {
-	TargetID   string `json:"targetId"`
-	Model      string `json:"model"`
-	Protocol   string `json:"protocol,omitempty"`
-	Tokenizer  string `json:"tokenizer,omitempty"`
-	Label      string `json:"label,omitempty"`
+	TargetID  string `json:"targetId"`
+	Model     string `json:"model"`
+	Protocol  string `json:"protocol,omitempty"`
+	Tokenizer string `json:"tokenizer,omitempty"`
+	Label     string `json:"label,omitempty"`
 }
 
 type Config struct {
-	Targets           []TargetSpec        `json:"targets"`
-	PromptIDs         []string            `json:"promptIds"`
-	Repetitions       int                 `json:"repetitions"`
-	MaxOutputTokens   int                 `json:"maxOutputTokens"`
-	Temperature       *float64            `json:"temperature"`
-	Stream            bool                `json:"stream"`
-	Concurrency       int                 `json:"concurrency"`
-	TimeoutMs         int                 `json:"timeoutMs"`
-	AnomalyThreshold  float64             `json:"anomalyThresholdPct"`
-	Baseline          string              `json:"baseline"`
-	CheckLocal        bool                `json:"checkLocal"`
-	Retry             engine.RetryPolicy  `json:"retry"`
+	Targets          []TargetSpec       `json:"targets"`
+	PromptIDs        []string           `json:"promptIds"`
+	Repetitions      int                `json:"repetitions"`
+	MaxOutputTokens  int                `json:"maxOutputTokens"`
+	Temperature      *float64           `json:"temperature"`
+	Stream           bool               `json:"stream"`
+	Concurrency      int                `json:"concurrency"`
+	TimeoutMs        int                `json:"timeoutMs"`
+	AnomalyThreshold float64            `json:"anomalyThresholdPct"`
+	Baseline         string             `json:"baseline"`
+	CheckLocal       bool               `json:"checkLocal"`
+	Retry            engine.RetryPolicy `json:"retry"`
 }
 
 type Module struct {
@@ -87,7 +87,7 @@ func (m *Module) Validate(raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("重复次数不能超过 20")
 	}
 	if c.MaxOutputTokens <= 0 {
-		c.MaxOutputTokens = 8
+		c.MaxOutputTokens = 512
 	}
 	if c.MaxOutputTokens > 4096 {
 		return nil, fmt.Errorf("输出 Token 上限不能超过 4096")
@@ -145,15 +145,31 @@ type cellAcc struct {
 }
 
 type Accumulator struct {
-	mu    sync.Mutex
-	cells map[cellKey]*cellAcc
+	mu             sync.Mutex
+	cells          map[cellKey]*cellAcc
+	targetResponse map[int]map[string]int64
 }
 
-func NewAccumulator() *Accumulator { return &Accumulator{cells: map[cellKey]*cellAcc{}} }
+func NewAccumulator() *Accumulator {
+	return &Accumulator{
+		cells:          map[cellKey]*cellAcc{},
+		targetResponse: map[int]map[string]int64{},
+	}
+}
 
 func (b *Accumulator) Add(ti int, promptID string, it model.Item) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if rm := it.ResponseModelName(); rm != "" {
+		m := b.targetResponse[ti]
+		if m == nil {
+			m = map[string]int64{}
+			b.targetResponse[ti] = m
+		}
+		if _, seen := m[rm]; seen || len(m) < model.MaxResponseModels {
+			m[rm]++
+		}
+	}
 	key := cellKey{Target: ti, Prompt: promptID}
 	c := b.cells[key]
 	if c == nil {
@@ -172,7 +188,9 @@ func (b *Accumulator) Add(ti int, promptID string, it model.Item) {
 	} else {
 		c.errors++
 	}
-	if it.LocalPromptTokens > 0 && c.local == 0 {
+	// Local token counts are a diagnostic comparison against a successful
+	// upstream response; failed requests have nothing to compare against.
+	if it.OK && it.LocalPromptTokens > 0 && c.local == 0 {
 		c.local = it.LocalPromptTokens
 		if src, ok := it.Meta["localSource"].(string); ok {
 			c.localSource = src
@@ -208,8 +226,8 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 	b := NewAccumulator()
 
 	type job struct {
-		ti int
-		p  model.Prompt
+		ti  int
+		p   model.Prompt
 		rep int
 	}
 	jobs := make(chan job, 64)
@@ -227,21 +245,21 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 				sess.SetCurrentModel(spec.Model)
 				sess.SetPhase(fmt.Sprintf("审计 %s · %s", spec.Label, j.p.Name))
 				it, ok := sess.Exec(ctx, engine.ExecRequest{
-					Target:       resolved[j.ti],
-					Model:        spec.Model,
-					Protocol:     modcommon.NormProtocol(spec.Protocol),
-					Messages:     msgs,
-					MaxTokens:    cfg.MaxOutputTokens,
-					Temperature:  cfg.Temperature,
-					Stream:       cfg.Stream,
-					Timeout:      time.Duration(cfg.TimeoutMs) * time.Millisecond,
-					Retry:        cfg.Retry,
-					Capture:      true,
+					Target:            resolved[j.ti],
+					Model:             spec.Model,
+					Protocol:          modcommon.NormProtocol(spec.Protocol),
+					Messages:          msgs,
+					MaxTokens:         cfg.MaxOutputTokens,
+					Temperature:       cfg.Temperature,
+					Stream:            cfg.Stream,
+					Timeout:           time.Duration(cfg.TimeoutMs) * time.Millisecond,
+					Retry:             cfg.Retry,
+					Capture:           true,
 					TokenizerStrategy: tokens.Strategy(spec.Tokenizer),
-					LocalPrompt:  true,
-					CaseID:       j.p.ID,
-					CaseName:     j.p.Name,
-					Repetition:   j.rep,
+					LocalPrompt:       true,
+					CaseID:            j.p.ID,
+					CaseName:          j.p.Name,
+					Repetition:        j.rep,
 					Meta: map[string]any{
 						"targetIndex": j.ti,
 						"targetLabel": spec.Label,
@@ -282,31 +300,31 @@ feed:
 }
 
 type Cell struct {
-	TargetIndex   int      `json:"targetIndex"`
-	TargetID      string   `json:"targetId"`
-	TargetLabel   string   `json:"targetLabel"`
-	Model         string   `json:"model"`
-	Protocol      string   `json:"protocol"`
-	PromptID      string   `json:"promptId"`
-	PromptName    string   `json:"promptName"`
-	Count         int      `json:"count"`
-	Success       int      `json:"success"`
-	Errors        int      `json:"errors"`
-	MissingUsage  int      `json:"missingUsage"`
-	MinInput      float64  `json:"minInput"`
-	MedianInput   float64  `json:"medianInput"`
-	MaxInput      float64  `json:"maxInput"`
-	AvgInput      float64  `json:"avgInput"`
-	LocalTokens   int      `json:"localTokens"`
-	LocalSource   string   `json:"localSource,omitempty"`
-	Overhead      float64  `json:"overhead"`
-	OverheadPct   float64  `json:"overheadPct"`
-	SpreadPct     float64  `json:"spreadPct"`
-	DeltaPct      float64  `json:"deltaPct"`
-	Status        string   `json:"status"`
-	Reasons       []string `json:"reasons,omitempty"`
-	Cost          float64  `json:"cost"`
-	AvgLatencyMs  float64  `json:"avgLatencyMs"`
+	TargetIndex  int      `json:"targetIndex"`
+	TargetID     string   `json:"targetId"`
+	TargetLabel  string   `json:"targetLabel"`
+	Model        string   `json:"model"`
+	Protocol     string   `json:"protocol"`
+	PromptID     string   `json:"promptId"`
+	PromptName   string   `json:"promptName"`
+	Count        int      `json:"count"`
+	Success      int      `json:"success"`
+	Errors       int      `json:"errors"`
+	MissingUsage int      `json:"missingUsage"`
+	MinInput     float64  `json:"minInput"`
+	MedianInput  float64  `json:"medianInput"`
+	MaxInput     float64  `json:"maxInput"`
+	AvgInput     float64  `json:"avgInput"`
+	LocalTokens  int      `json:"localTokens"`
+	LocalSource  string   `json:"localSource,omitempty"`
+	Overhead     float64  `json:"overhead"`
+	OverheadPct  float64  `json:"overheadPct"`
+	SpreadPct    float64  `json:"spreadPct"`
+	DeltaPct     float64  `json:"deltaPct"`
+	Status       string   `json:"status"`
+	Reasons      []string `json:"reasons,omitempty"`
+	Cost         float64  `json:"cost"`
+	AvgLatencyMs float64  `json:"avgLatencyMs"`
 }
 
 type PromptRow struct {
@@ -317,31 +335,32 @@ type PromptRow struct {
 }
 
 type TargetAgg struct {
-	TargetIndex  int     `json:"targetIndex"`
-	TargetID     string  `json:"targetId"`
-	TargetLabel  string  `json:"targetLabel"`
-	Model        string  `json:"model"`
-	Protocol     string  `json:"protocol"`
-	Count        int     `json:"count"`
-	Success      int     `json:"success"`
-	Errors       int     `json:"errors"`
-	MedianInput  float64 `json:"medianInput"`
-	AvgInput     float64 `json:"avgInput"`
-	LocalTokens  float64 `json:"localTokens"`
-	OverheadPct  float64 `json:"overheadPct"`
-	Anomalies    int     `json:"anomalies"`
-	Cost         float64 `json:"cost"`
+	TargetIndex    int      `json:"targetIndex"`
+	TargetID       string   `json:"targetId"`
+	TargetLabel    string   `json:"targetLabel"`
+	Model          string   `json:"model"`
+	Protocol       string   `json:"protocol"`
+	ResponseModels []string `json:"responseModels,omitempty"`
+	Count          int      `json:"count"`
+	Success        int      `json:"success"`
+	Errors         int      `json:"errors"`
+	MedianInput    float64  `json:"medianInput"`
+	AvgInput       float64  `json:"avgInput"`
+	LocalTokens    float64  `json:"localTokens"`
+	OverheadPct    float64  `json:"overheadPct"`
+	Anomalies      int      `json:"anomalies"`
+	Cost           float64  `json:"cost"`
 }
 
 type Anomaly struct {
-	PromptID    string  `json:"promptId"`
-	PromptName  string  `json:"promptName"`
-	TargetLabel string  `json:"targetLabel"`
-	Model       string  `json:"model"`
-	Status      string  `json:"status"`
-	DeltaPct    float64 `json:"deltaPct"`
-	SpreadPct   float64 `json:"spreadPct"`
-	OverheadPct float64 `json:"overheadPct"`
+	PromptID    string   `json:"promptId"`
+	PromptName  string   `json:"promptName"`
+	TargetLabel string   `json:"targetLabel"`
+	Model       string   `json:"model"`
+	Status      string   `json:"status"`
+	DeltaPct    float64  `json:"deltaPct"`
+	SpreadPct   float64  `json:"spreadPct"`
+	OverheadPct float64  `json:"overheadPct"`
 	Reasons     []string `json:"reasons"`
 }
 
@@ -382,6 +401,7 @@ func BuildReport(threshold float64, baseline string, targets []TargetRef, prompt
 		rep.Targets[i] = TargetAgg{
 			TargetIndex: i, TargetID: t.TargetID, TargetLabel: t.Label,
 			Model: t.Model, Protocol: t.Protocol,
+			ResponseModels: model.TopNames(b.targetResponse[i], model.MaxResponseModels),
 		}
 	}
 	// target-wide input pools
@@ -400,7 +420,12 @@ func BuildReport(threshold float64, baseline string, targets []TargetRef, prompt
 				TargetIndex: ti, TargetID: t.TargetID, TargetLabel: t.Label, Model: t.Model,
 				Protocol: t.Protocol, PromptID: p.ID, PromptName: p.Name,
 				Count: acc.count, Success: acc.success, Errors: acc.errors, MissingUsage: acc.missing,
-				LocalTokens: acc.local, LocalSource: acc.localSource, Cost: acc.cost,
+				Cost: acc.cost,
+			}
+			// Only successful requests provide a local-vs-upstream comparison.
+			if acc.success > 0 {
+				cell.LocalTokens = acc.local
+				cell.LocalSource = acc.localSource
 			}
 			if acc.latN > 0 {
 				cell.AvgLatencyMs = acc.latSum / float64(acc.latN)

@@ -23,7 +23,6 @@ export default function AuditNew() {
   const targets = (Form.useWatch('targets', form) || []) as TargetRow[]
   const promptIds = (Form.useWatch('promptIds', form) || []) as string[]
   const reps = Form.useWatch('repetitions', form) || 3
-  const maxOutputTokens = Form.useWatch('maxOutputTokens', form) || 8
 
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [editingIds, setEditingIds] = useState<Set<string>>(new Set())
@@ -109,55 +108,38 @@ export default function AuditNew() {
     }
   }, [estimateSig])
 
-  const estimateErrors = useMemo(() => {
-    const out = new Set<string>()
-    for (const e of Object.values(estimates)) if (e.error) out.add(e.error)
-    return Array.from(out)
-  }, [estimates])
-
-  const estimateFailed = validTargets.length > 0 && selectedPrompts.length > 0 && !estimating &&
-    Object.keys(estimates).length > 0 && Object.values(estimates).every(e => !!e.error)
-
   const estimate = useMemo(() => {
-    const perTarget = validTargets.map(t => {
+    const perPrompt = selectedPrompts.map(p => {
       let tokens = 0
       let missing = false
-      for (const p of selectedPrompts) {
+      let errored = 0
+      const rows = validTargets.map(t => {
         const e = estimates[`${t.ti}:${p.id}`]
-        if (!e || e.error) missing = true
+        const failed = !!e?.error
+        if (!e) missing = true
+        else if (failed) { errored++; missing = true }
         else tokens += e.tokens
+        return {
+          key: `${t.ti}`,
+          label: t.label || `目标 ${t.ti + 1}`,
+          model: t.model,
+          tokens: failed || !e ? 0 : e.tokens,
+          missing: !e || failed,
+          error: e?.error,
+        }
+      })
+      return {
+        id: p.id, name: p.name, tokens, missing, errored,
+        allFailed: validTargets.length > 0 && errored === validTargets.length,
+        perTarget: rows,
       }
-      return { key: `${t.ti}`, label: t.label || `目标 ${t.ti + 1}`, model: t.model, tokens, missing }
     })
-    const perRound = perTarget.reduce((n, t) => n + t.tokens, 0)
-    const repsN = Number(reps || 0)
-    const requests = validTargets.length * selectedPrompts.length * repsN
-    const totalInput = perRound * repsN
-    const avgInput = requests > 0 ? totalInput / requests : 0
-    const outputUpper = Number(maxOutputTokens || 0) * requests
-    return { perTarget, perRound, requests, totalInput, avgInput, outputUpper }
-  }, [validTargets, selectedPrompts, estimates, reps, maxOutputTokens])
+    return { perPrompt }
+  }, [validTargets, selectedPrompts, estimates])
 
   const planned = useMemo(() => {
     return validTargets.length * promptIds.length * Number(reps || 0)
   }, [validTargets, promptIds, reps])
-
-  const estimateTip = (
-    <div style={{ lineHeight: 1.7, maxWidth: 420 }}>
-      {estimateErrors.length > 0 && (
-        <div style={{ color: '#dc2626', whiteSpace: 'pre-wrap' }}>
-          估算失败：{estimateErrors.join('；')}
-        </div>
-      )}
-      <div>全轮估算 = Σ(每条提示词输入 Token) × 目标数 × 重复次数。</div>
-      {estimate.perTarget.map(t => (
-        <div key={t.key}>{t.label}（{t.model}）：{fmtInt(t.tokens)} tok/轮{t.missing ? ' · 部分未估算' : ''}</div>
-      ))}
-      <div>请求数 {fmtInt(estimate.requests)} · 平均输入 {fmtInt(estimate.avgInput)} tok/请求</div>
-      <div>输出上限 {fmtInt(estimate.outputUpper)} tok</div>
-      <div className="muted">在线计数策略会改用本地估算，避免实时打字触发上游请求。</div>
-    </div>
-  )
 
   const toggleEdit = (id: string) => setEditingIds(prev => {
     const next = new Set(prev)
@@ -251,7 +233,7 @@ export default function AuditNew() {
         onFinish={submit}
         initialValues={{
           targets: [{ targetId: '', model: '', label: '', tokenizer: 'auto', protocol: 'auto' }],
-          promptIds: [], repetitions: 3, maxOutputTokens: 8, temperature: 0, stream: false,
+          promptIds: [], repetitions: 3, maxOutputTokens: 512, temperature: 0, stream: false,
           concurrency: 4, timeoutSec: 120, anomalyThresholdPct: 10, baseline: 'min', checkLocal: true,
           maxRetries: 0, backoffMs: 500, maxBackoffMs: 5000, retryOn429: true, retryOn5xx: true, retryOnNetwork: true,
         }}
@@ -270,16 +252,40 @@ export default function AuditNew() {
         </div>
 
         <div className="panel">
-          <div className="panel-title" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="panel-title" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <span>2. 审计提示词</span>
-            <Tooltip title={validTargets.length && selectedPrompts.length ? estimateTip : '选择对比目标和提示词后自动估算'}>
-              <Tag color={estimateFailed ? 'red' : 'blue'} style={{ fontWeight: 400, marginInlineEnd: 0 }}>
-                {estimating && <Spin size="small" style={{ marginRight: 6 }} />}
-                {validTargets.length && selectedPrompts.length
-                  ? estimateFailed ? '预估失败' : `预估输入（全轮）≈ ${fmtInt(estimate.totalInput)} tok`
-                  : '预估输入（全轮）≈ - tok'}
-              </Tag>
-            </Tooltip>
+            <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
+              {!selectedPrompts.length && (
+                <Tag style={{ fontWeight: 400, marginInlineEnd: 0 }}>选择提示词后自动估算</Tag>
+              )}
+              {selectedPrompts.map(p => {
+                const est = estimate.perPrompt.find(x => x.id === p.id)
+                const tone = !validTargets.length ? 'default' : estimating ? 'default' : est?.allFailed ? 'red' : est?.missing ? 'orange' : 'blue'
+                const text = !validTargets.length ? '先选择对比目标'
+                  : estimating ? '估算中…'
+                    : est?.allFailed ? '估算失败'
+                      : `≈ ${fmtInt(est?.tokens || 0)} tok/轮${est?.missing ? '（部分失败）' : ''}`
+                const tip = !validTargets.length ? '先选择对比目标' : (
+                  <div style={{ lineHeight: 1.7, maxWidth: 420 }}>
+                    <div><b>{p.name}</b> ≈ {fmtInt(est?.tokens || 0)} tok/轮</div>
+                    {(est?.perTarget || []).map(t => (
+                      <div key={t.key}>
+                        {t.label}（{t.model}）：{t.error ? `估算失败：${t.error}` : t.missing ? '未估算' : `${fmtInt(t.tokens)} tok`}
+                      </div>
+                    ))}
+                    <div className="muted">按当前全部有效目标累加；在线计数策略会改用本地估算。</div>
+                  </div>
+                )
+                return (
+                  <Tooltip key={p.id} title={tip}>
+                    <Tag color={tone} style={{ fontWeight: 400, marginInlineEnd: 0 }}>
+                      {estimating && <Spin size="small" style={{ marginRight: 6 }} />}
+                      {p.name} {text}
+                    </Tag>
+                  </Tooltip>
+                )
+              })}
+            </Space>
           </div>
           <Form.Item name="promptIds" label="选择提示词（建议覆盖短文本、长文本、中英混合）" rules={[{ required: true, message: '请选择提示词' }]}>
             <Select mode="multiple" allowClear placeholder="从提示词库选择" options={(prompts?.items || []).map(p => ({ value: p.id, label: `${p.name}（${p.content.length} 字）` }))} />
@@ -342,7 +348,7 @@ export default function AuditNew() {
 
           <Row gutter={[14, 6]}>
             <Col xs={12} lg={4}><Form.Item name="repetitions" label="每目标重复次数"><InputNumber min={1} max={20} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} lg={4}><Form.Item name="maxOutputTokens" label="输出上限" extra="越小越省钱，审计只关注输入 Token"><InputNumber min={1} max={4096} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} lg={4}><Form.Item name="maxOutputTokens" label="输出上限" extra="默认 512；越小越省钱，审计只关注输入 Token"><InputNumber min={1} max={4096} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="temperature" label="temperature"><InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="concurrency" label="并发"><InputNumber min={1} max={32} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="超时（秒）"><InputNumber min={1} max={600} style={{ width: '100%' }} /></Form.Item></Col>
@@ -379,7 +385,6 @@ export default function AuditNew() {
             <Tag color="gold">提示词 {promptIds.length}</Tag>
             <Tag color="purple">重复 {reps}</Tag>
             <Tag color="magenta">预计请求 {planned}</Tag>
-            <Tag color="cyan">预估输入（全轮）{validTargets.length && selectedPrompts.length ? fmtInt(estimate.totalInput) : '-'} tok</Tag>
           </Space>
           <Button type="primary" size="large" icon={<PlayCircleOutlined />} htmlType="submit" loading={submitting}>启动审计</Button>
         </div>
