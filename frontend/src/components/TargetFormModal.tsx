@@ -45,6 +45,8 @@ export default function TargetFormModal({
         clearKey: values.clearKey,
       }
       if (values.apiKey) body.apiKey = values.apiKey
+      // 测试连接时已经拿到了模型列表，随保存一起提交，列表无需再点“取模型”。
+      if (testResult?.ok) body.models = (testResult.models || []).map((m: any) => m.id)
       if (target) return api.updateTarget(target.id, body)
       return api.createTarget(body)
     },
@@ -83,7 +85,7 @@ export default function TargetFormModal({
       width={640}
       destroyOnClose
     >
-      <Form form={form} layout="vertical" onFinish={v => save.mutate(v)}>
+      <Form form={form} layout="vertical" onFinish={v => save.mutate(v)} onValuesChange={() => setTestResult(null)}>
         <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
           <Input placeholder="例如：生产 New API" />
         </Form.Item>

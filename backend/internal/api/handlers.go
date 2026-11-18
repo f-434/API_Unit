@@ -36,6 +36,9 @@ type targetReq struct {
 	Protocol string  `json:"protocol"`
 	APIKey   *string `json:"apiKey"`
 	ClearKey bool    `json:"clearKey"`
+	// Models 是添加/编辑时“测试连接并获取模型”得到的模型列表。
+	// 仅用于记录模型数与最近检测时间，避免保存后还要再点一次“取模型”。
+	Models []string `json:"models"`
 }
 
 func (s *Server) handleTargetCreate(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +58,10 @@ func (s *Server) handleTargetCreate(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SaveTarget(t, key); err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// 添加时已经测试过连接，直接落库模型数与检测时间。
+	if req.Models != nil {
+		_ = s.store.TouchTarget(t.ID, len(req.Models))
 	}
 	saved, err := s.store.GetTarget(t.ID, false)
 	if err != nil {
@@ -125,6 +132,10 @@ func (s *Server) handleTargetUpdate(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.SaveTarget(t, key); err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// 编辑时若重新测试过连接，同步模型数与检测时间。
+	if req.Models != nil {
+		_ = s.store.TouchTarget(id, len(req.Models))
 	}
 	updated, _ := s.store.GetTarget(id, false)
 	writeJSON(w, http.StatusOK, map[string]any{"item": updated})
