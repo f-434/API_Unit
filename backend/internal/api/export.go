@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"apiunit/internal/model"
+	"apiunit/internal/modules/authenticity"
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/tokenaudit"
 	"apiunit/internal/requestdiff"
@@ -25,18 +26,19 @@ type stressExport struct {
 }
 
 type exportData struct {
-	Run         model.Run
-	Headline    model.RunSummary
-	Created     string
-	Started     string
-	Finished    string
-	Duration    string
-	ConfigJSON  string
-	Items       []model.Item
-	Stress      *stressExport
-	Audit       *tokenaudit.Report
-	RequestDiff *requestdiff.Report
-	Injection   *injection.Report
+	Run          model.Run
+	Headline     model.RunSummary
+	Created      string
+	Started      string
+	Finished     string
+	Duration     string
+	ConfigJSON   string
+	Items        []model.Item
+	Stress       *stressExport
+	Audit        *tokenaudit.Report
+	RequestDiff  *requestdiff.Report
+	Injection    *injection.Report
+	Authenticity *authenticity.Report
 }
 
 func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request) {
@@ -100,14 +102,15 @@ func (s *Server) exportCSV(w http.ResponseWriter, id string) {
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 	_ = cw.Write([]string{
-		"id", "index", "model", "response_model", "target", "case", "category", "verdict", "ok", "status", "finish_reason",
+		"id", "index", "repetition", "model", "response_model", "target", "case", "category", "verdict", "checks", "ok", "status", "finish_reason",
 		"latency_ms", "ttft_ms", "tpot_ms", "prompt_tokens", "completion_tokens",
 		"total_tokens", "cost", "error_type", "error_message", "request_id", "started_at",
 		"output_text", "request_json", "response_json",
 	})
 	for _, it := range items {
+		checksJSON, _ := json.Marshal(it.Checks)
 		_ = cw.Write([]string{
-			strconv.FormatInt(it.ID, 10), strconv.Itoa(it.Index), it.Model, it.ResponseModelName(), it.TargetName, it.CaseName, it.Category, it.Verdict,
+			strconv.FormatInt(it.ID, 10), strconv.Itoa(it.Index), strconv.Itoa(it.Repetition), it.Model, it.ResponseModelName(), it.TargetName, it.CaseName, it.Category, it.Verdict, string(checksJSON),
 			strconv.FormatBool(it.OK), strconv.Itoa(it.Status), it.FinishReason,
 			fmt.Sprintf("%.2f", it.LatencyMs), fmt.Sprintf("%.2f", it.TTFTMs), fmt.Sprintf("%.2f", it.TPOTMs),
 			strconv.Itoa(it.PromptTokens), strconv.Itoa(it.CompletionTokens), strconv.Itoa(it.TotalTokens),
@@ -159,6 +162,11 @@ func (s *Server) exportHTML(w http.ResponseWriter, view *model.RunView) {
 			if json.Unmarshal(raw, &rep) == nil {
 				data.Injection = &rep
 			}
+		case model.KindAuthenticity:
+			var rep authenticity.Report
+			if json.Unmarshal(raw, &rep) == nil {
+				data.Authenticity = &rep
+			}
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -196,7 +204,8 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 		}
 		return fmt.Sprintf("$%.4f", v)
 	},
-	"num": func(v int64) string { return strconv.FormatInt(v, 10) },
+	"num":      func(v int64) string { return strconv.FormatInt(v, 10) },
+	"duration": durationText,
 	"kindLabel": func(k model.RunKind) string {
 		switch k {
 		case model.KindStress:
@@ -207,6 +216,8 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 			return "请求差异审计"
 		case model.KindInjection:
 			return "提示词注入安全测试"
+		case model.KindAuthenticity:
+			return "模型真实性"
 		}
 		return string(k)
 	},
@@ -251,6 +262,94 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 		}
 		return s
 	},
+	"authStatusLabel": func(s string) string {
+		switch s {
+		case "pass":
+			return "通过"
+		case "fail":
+			return "失败"
+		case "warn":
+			return "警告"
+		case "na":
+			return "N/A"
+		}
+		return s
+	},
+	"authStatusClass": func(s string) string {
+		switch s {
+		case "pass":
+			return "ok"
+		case "fail":
+			return "bad"
+		case "warn":
+			return "warn"
+		}
+		return "muted"
+	},
+	"authVerdictLabel": func(s string) string {
+		switch s {
+		case "authentic":
+			return "通过"
+		case "likely":
+			return "较可信"
+		case "suspicious":
+			return "可疑"
+		case "counterfeit":
+			return "仿冒"
+		case "inconclusive":
+			return "证据不足"
+		case "error":
+			return "执行错误"
+		}
+		return s
+	},
+	"authVerdictClass": func(s string) string {
+		switch s {
+		case "authentic":
+			return "ok"
+		case "likely":
+			return "brand"
+		case "suspicious", "counterfeit", "error":
+			return "bad"
+		}
+		return "warn"
+	},
+	"authGroup": func(s string) string {
+		if s == "外部证明（MCP / 证明页）" || s == "外部证明" {
+			return "工具调用情况"
+		}
+		return s
+	},
+	"authRate": func(passed, failed int) string {
+		denom := passed + failed
+		if denom <= 0 {
+			return "-"
+		}
+		return fmt.Sprintf("%.0f%%", float64(passed)/float64(denom)*100)
+	},
+	"authSameRep": func(a, b int) bool {
+		if a == 0 {
+			a = 1
+		}
+		if b == 0 {
+			b = 1
+		}
+		return a == b
+	},
+	"authTests": func(r *authenticity.Report) int {
+		if r == nil {
+			return 0
+		}
+		total := 0
+		for _, m := range r.Models {
+			if m.Repetitions > 0 {
+				total += m.Repetitions
+			} else {
+				total++
+			}
+		}
+		return total
+	},
 }).Parse(reportHTML))
 
 const reportHTML = `<!doctype html>
@@ -271,7 +370,7 @@ section{background:#fff;border:1px solid var(--line);border-radius:12px;padding:
 table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
 th{background:#fafafa;color:#374151;font-weight:600;white-space:nowrap}
 .right{text-align:right}.mono{font-family:ui-monospace,Consolas,monospace}
-.bad{color:var(--bad)}.ok{color:var(--ok)}.warn{color:var(--warn)}
+.bad{color:var(--bad)}.ok{color:var(--ok)}.warn{color:var(--warn)}.brand{color:var(--brand)}.muted{color:var(--muted)}
 .bar{height:8px;background:#eef2f7;border-radius:99px;overflow:hidden;min-width:80px}
 .bar i{display:block;height:100%;background:var(--brand)}
 .notes{color:var(--muted);font-size:12.5px;padding-left:18px}
@@ -284,6 +383,7 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 <div class="meta"><span>ID: <b class="mono">{{.Run.ID}}</b></span><span>创建: {{.Created}}</span><span>开始: {{.Started}}</span><span>结束: {{.Finished}}</span><span>耗时: {{.Duration}}</span></div>
 </header>
 
+{{if ne (printf "%s" .Run.Kind) "authenticity"}}
 <div class="cards">
 <div class="card"><span>总请求</span><b>{{.Headline.Total}}</b></div>
 <div class="card"><span>成功</span><b class="ok">{{.Headline.Success}}</b></div>
@@ -298,6 +398,7 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 {{end}}
 <div class="card"><span>预估成本</span><b>{{money .Headline.Cost}}</b></div>
 </div>
+{{end}}
 
 {{if .Stress}}
 <section>
@@ -385,13 +486,89 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 </section>
 {{end}}
 
+{{if .Authenticity}}
+<section>
+<h2>模型真实性</h2>
+<div class="cards">
+<div class="card"><span>模型数</span><b>{{.Authenticity.Summary.Models}}</b></div>
+<div class="card"><span>测试次数</span><b>{{authTests .Authenticity}}</b></div>
+<div class="card"><span>通过 / 较可信</span><b class="ok">{{.Authenticity.Summary.Authentic}} / {{.Authenticity.Summary.Likely}}</b></div>
+<div class="card"><span>可疑 / 仿冒</span><b class="bad">{{.Authenticity.Summary.Suspicious}} / {{.Authenticity.Summary.Counterfeit}}</b></div>
+<div class="card"><span>证据不足 / 错误</span><b class="warn">{{.Authenticity.Summary.Inconclusive}} / {{.Authenticity.Summary.Error}}</b></div>
+<div class="card"><span>检查 通过 / 失败 / N/A</span><b>{{.Authenticity.Summary.Passed}} / {{.Authenticity.Summary.Failed}} / {{.Authenticity.Summary.NA}}</b></div>
+</div>
+
+<h3>模型汇总</h3>
+<table><tr><th>上游</th><th>模型</th><th>测试次数</th><th>来源</th><th>来源置信度</th><th>结论</th><th>每轮结论</th><th class="right">通过</th><th class="right">失败</th><th class="right">N/A</th><th class="right">耗时</th></tr>
+{{range .Authenticity.Models}}<tr>
+<td>{{.TargetName}}</td><td class="mono">{{.Model}}</td><td>{{if .Repetitions}}{{.Repetitions}}{{else}}1{{end}}</td>
+<td>{{.Source.Name}}</td><td>{{.Source.Confidence}}</td>
+<td class="{{authVerdictClass .Verdict}}"><b>{{authVerdictLabel .Verdict}}</b></td>
+<td>{{range $i, $rv := .RepVerdicts}}{{if $i}}<br>{{end}}第{{$rv.Repetition}}次 <span class="{{authVerdictClass $rv.Verdict}}">{{authVerdictLabel $rv.Verdict}}</span>{{end}}</td>
+<td class="right ok">{{.Passed}}</td><td class="right bad">{{.Failed}}</td><td class="right muted">{{.NA}}</td><td class="right">{{duration .DurationMs}}</td>
+</tr>{{end}}
+</table>
+
+<h3>测试执行列表</h3>
+<table><tr><th>上游</th><th>模型</th><th>轮次</th><th>结论</th><th>通过率</th><th class="right">通过</th><th class="right">失败</th><th class="right">N/A</th><th class="right">耗时</th><th>错误</th></tr>
+{{range $m := .Authenticity.Models}}{{range $m.RepVerdicts}}<tr>
+<td>{{$m.TargetName}}</td><td class="mono">{{$m.Model}}</td><td>第 {{.Repetition}}/{{if $m.Repetitions}}{{$m.Repetitions}}{{else}}1{{end}} 次</td>
+<td class="{{authVerdictClass .Verdict}}"><b>{{authVerdictLabel .Verdict}}</b></td>
+<td>{{authRate .Passed .Failed}}</td>
+<td class="right ok">{{.Passed}}</td><td class="right bad">{{.Failed}}</td><td class="right muted">{{.NA}}</td>
+<td class="right">{{duration .DurationMs}}</td><td class="mono bad">{{.Error}}</td>
+</tr>{{end}}{{end}}
+</table>
+
+<h3>未通过检查</h3>
+{{range $m := .Authenticity.Models}}{{range $m.Checks}}{{if eq .Status "fail"}}
+<div class="meta" style="padding:4px 0;border-bottom:1px solid var(--line)">
+<b class="bad">{{authStatusLabel .Status}}</b> · <b>{{$m.Model}}</b>{{if .Repetition}}（第 {{.Repetition}} 次）{{end}} · {{authGroup .GroupName}} · {{.Name}}
+{{if .Evidence}}<div class="muted mono">{{.Evidence}}</div>{{end}}
+</div>
+{{end}}{{end}}{{end}}
+
+<h3>逐条检查明细</h3>
+{{range $m := .Authenticity.Models}}
+{{if $m.RepVerdicts}}
+{{range $rv := $m.RepVerdicts}}
+<h3>{{$m.Model}} · 第 {{$rv.Repetition}} 次 <span class="{{authVerdictClass $rv.Verdict}}">{{authVerdictLabel $rv.Verdict}}</span> <span class="muted">· {{$m.TargetName}} · {{$m.Source.Name}} · 通过率 {{authRate $rv.Passed $rv.Failed}}</span></h3>
+<table><tr><th>分组</th><th>检查</th><th>结果</th><th>证据等级</th><th>证据 / 原因</th></tr>
+{{range $m.Checks}}{{if authSameRep .Repetition $rv.Repetition}}<tr>
+<td>{{authGroup .GroupName}}</td>
+<td>{{.Name}}</td>
+<td class="{{authStatusClass .Status}}"><b>{{authStatusLabel .Status}}</b></td>
+<td>{{.Weight}}</td>
+<td class="mono">{{.Evidence}}</td>
+</tr>{{end}}{{end}}
+</table>
+{{end}}
+{{else}}
+<h3>{{$m.Model}} <span class="{{authVerdictClass $m.Verdict}}">{{authVerdictLabel $m.Verdict}}</span> <span class="muted">· {{$m.TargetName}} · {{$m.Source.Name}}</span></h3>
+<table><tr><th>轮次</th><th>分组</th><th>检查</th><th>结果</th><th>证据等级</th><th>证据 / 原因</th></tr>
+{{range $m.Checks}}<tr>
+<td>{{if .Repetition}}第 {{.Repetition}} 次{{else}}-{{end}}</td>
+<td>{{authGroup .GroupName}}</td>
+<td>{{.Name}}</td>
+<td class="{{authStatusClass .Status}}"><b>{{authStatusLabel .Status}}</b></td>
+<td>{{.Weight}}</td>
+<td class="mono">{{.Evidence}}</td>
+</tr>{{end}}
+</table>
+{{end}}
+{{end}}
+
+<ul class="notes">{{range .Authenticity.Notes}}<li>{{.}}</li>{{end}}</ul>
+</section>
+{{end}}
+
 {{if .Items}}
 <section>
 <h2>请求 / 响应明细</h2>
 <p class="notes">共 {{len .Items}} 条。正文按落库内容展示；若条目提示“已截断”，说明超过了保存上限（请求 8MB / 响应 1MB / 输出 256KB）。</p>
 {{range $i, $it := .Items}}
 <details style="border-bottom:1px solid var(--line);padding:6px 0">
-<summary><b>#{{$it.Index}}</b> <span class="mono">{{$it.Model}}</span>{{if $it.ResponseModel}} → <span class="mono warn">{{$it.ResponseModel}}</span>{{end}} · HTTP {{$it.Status}} · {{if $it.OK}}<span class="ok">成功</span>{{else}}<span class="bad">失败</span>{{end}} · {{ms $it.LatencyMs}} ms{{if $it.FinishReason}} · finish={{$it.FinishReason}}{{end}}{{if index $it.Meta "truncated"}} · <span class="warn">已截断</span>{{end}}</summary>
+<summary><b>#{{$it.Index}}</b> <span class="mono">{{$it.Model}}</span>{{if $it.Repetition}} · 第 {{$it.Repetition}} 次{{end}}{{if $it.ResponseModel}} → <span class="mono warn">{{$it.ResponseModel}}</span>{{end}} · HTTP {{$it.Status}} · {{if $it.OK}}<span class="ok">成功</span>{{else}}<span class="bad">失败</span>{{end}}{{if eq (printf "%s" $.Run.Kind) "authenticity"}} · 检查 <span class="{{authStatusClass $it.Verdict}}">{{authStatusLabel $it.Verdict}}</span>{{end}} · {{ms $it.LatencyMs}} ms{{if $it.FinishReason}} · finish={{$it.FinishReason}}{{end}}{{if index $it.Meta "truncated"}} · <span class="warn">已截断</span>{{end}}</summary>
 <div class="meta" style="margin:6px 0">
 <span>目标: {{$it.TargetName}}</span><span>协议: {{$it.Protocol}}</span><span>输入: {{$it.PromptTokens}}</span><span>输出: {{$it.CompletionTokens}}</span><span>TTFT: {{ms $it.TTFTMs}} ms</span>{{if $it.ErrorMessage}}<span class="bad">错误: {{$it.ErrorType}} {{$it.ErrorMessage}}</span>{{end}}
 </div>

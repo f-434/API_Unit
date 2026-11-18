@@ -8,6 +8,7 @@
 | **Token 审计** | 同一提示词发往多个上游/模型，对比输入 Token、重复波动与本地分词器偏差，定位额外 Token 注入 |
 | **请求差异审计** | 保存完整请求快照与 SHA-256；对 `systemInstruction`、`contents`、`tools`、`generationConfig`、`cachedContent`、`safetySettings` 等做 JSONPath 结构化 Diff；扫描隐藏指令 |
 | **提示词注入** | 内置攻击用例 + 规则判定 + LLM-as-judge，输出 ASR、分类风险与逐用例明细 |
+| **模型真实性** | 官方接口指纹 + 响应来源 + 本地随机 nonce 工具回环 + 可选自建 MCP/证明页；多模型并发，输出通过/可疑/仿冒/证据不足 |
 
 系统不修改、不侵入 New API 源码，只通过标准 HTTP 接口访问网关。
 
@@ -252,6 +253,51 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 
 ---
 
+### 5.5 模型真实性
+
+**目标**：验证 API 背后是否真的提供了声称的模型与能力；默认不依赖第三方 MCP / 证明页，需要工具调用检测时在设置中配置自己的 MCP / 证明页。
+
+**四类证据**
+
+1. **接口指纹**：OpenAI Chat 的 `reasoning_effort=xxx`、Anthropic 的未知模型/未知 beta、Gemini 的非法 tools，期望返回官方校验错误结构。文案按官方 API 标定；不匹配只表示“未确认官方”，不单独判假。
+2. **响应来源**：优先看响应头（OpenAI/Azure/Anthropic/Bedrock/Vertex/Foundry/New API），其次看响应体特征（`content_filters`、`quota`、`trafficType`、`createTime`、`vertexaisearch`）。没有特征时输出“未识别/中转”，不会仅凭缺失就判官方。
+3. **本地随机挑战**（API 层保留；Web 新建页不再暴露，默认关闭）：
+   - 每次运行生成随机 `challenge`、`secret`、`a`、`b`；
+   - 第 1 轮要求模型调用工具并传入 `challenge`；
+   - 本地执行工具，把 `secret/a/b` 作为工具结果回传；
+   - 第 2 轮要求模型只输出 JSON，回显 `challenge` 与 `secret`，并给出 `a+b`。
+   - 只有真正完成两轮工具调用并读取了随机工具结果才能答对，固定答案/缓存回放会失败。
+4. **工具调用检测**：在「设置 → 模型真实性 / 工具调用」统一配置自己的 MCP Server、headers、证明页和默认启用的协议；新建测试时直接跟随该配置，无需每次重填。未配置或上游不支持时记 `N/A`，不参与失败判定。
+5. **Gemini 思维签名真实性**（当前仅 Gemini）：先让模型调用 `check_flight(AA100)` 并拿到带 `thoughtSignature` 的 functionCall；再把真实签名回放一次，要求 200 且使用工具结果；最后用伪造签名 `xxxxxxxxxxxx` 回放，真实 Gemini 应返回 400。伪造签名仍返回 200 视为「签名未被上游校验」，结论至少为可疑。
+   - `generic`：OpenAI Responses 的 MCP 请求会额外携带 `X-Proof-Nonce` / `X-Proof-Secret` 头；自建 MCP 服务读取这两个头，并把 `secret` 回显到工具结果即可。Claude/Gemini 使用 `web_search` 命中证明域名，并回显 `challenge`；配置了证明页 Base URL 时，会按 `PathTemplate` 生成 `/proof/{runToken}` 形式的 URL（`runToken` 为本次随机 nonce），证明页服务需要在该路径返回可检索内容。
+   - `t1y-legacy`：兼容原 Model Proof 的固定契约（环境变量、集合记录、关键字），URL/headers/期望值全部由配置提供，代码不内置任何凭据。
+   - MCP headers 加密存储；报告与导出会对 API Key、MCP header 值脱敏。任何配置在请求头里的凭据对被检测端点可见，请只对可信上游启用。
+
+**结论口径**
+
+| 结论 | 含义 |
+| --- | --- |
+| `通过` | 工具调用/能力证据通过，且有硬证据（官方指纹/高置信官方来源） |
+| `较可信` | 工具调用/能力证据通过，但没有硬证据（例如 New API 网关），未发现造假矛盾 |
+| `可疑` | 工具调用/能力证据失败、模型字段矛盾或来源冲突；不等于已确认仿冒 |
+| `仿冒` | 随机 nonce 不一致且伴随模型/来源矛盾，或明确伪造答案 |
+| `证据不足` | 探针因不支持/限流/超时未完成，或全部为 N/A |
+| `执行错误` | 鉴权、网络或端点配置错误 |
+
+`N/A` 永远不计为失败；不再使用“通过率 ≥60%”作为结论。同家族同能力的模型降级无法仅靠黑盒完全识别，报告会明确这一边界。
+
+**结果与并发**
+
+- 运行中通过 SSE 实时推送每个模型当前环节（指纹 / 来源 / 身份 / 一致性 / 工具调用情况）、已完成的检查项与失败证据，不必等整轮结束。
+- 新建页可勾选同一上游的多个模型；`concurrency` 控制同时测试的模型数（1–16），`repetitions` 控制每个模型完整重复几轮（1–5），报告中会显示每轮结论与汇总结论。
+- 测试完成后先按「模型 × 轮次」列表展示通过率；点击行展开逐条检查，按接口指纹、响应来源、工具调用情况、模型身份、数据一致性分组，显示通过/失败/警告/N/A、证据与“正文”入口。
+- 每个模型独立运行指纹、来源、身份、一致性与工具调用探针；单模型内探针默认串行。
+- 每个探针完整保存请求/响应正文（响应上限默认 8MB）；在检查行点「正文」查看对应请求/响应。
+- 结果统一进入「测试历史 / 测试详情」，支持 JSON/HTML/CSV 导出；HTML 报告包含模型汇总、测试执行列表与通过率、未通过检查和逐条检查明细，CSV 增加 `repetition` 与 `checks` 列。
+- **用例模板与变更记录**：在测试详情的检查项上点「用例」，可用该条真实请求/响应生成模板草稿；模板只新增版本，旧版本永久保留，必须到「真实性用例」页显式发布才会生效。当前支持指纹探针（`fp.*`）与 usage 规则（`usage.*`）。
+
+---
+
 ## 6. API 摘要
 
 所有接口位于 `/api`；设置 `AUTH_PASSWORD` 后除健康检查与登录外均需 Cookie。
@@ -278,8 +324,9 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | POST | `/api/diffs` | `{leftId, rightId, mode}` 结构化 Diff |
 | GET | `/api/diffs/export` | Diff 报告 JSON/HTML |
 | GET | `/api/runs/{id}/export` | 测试报告 JSON/HTML/CSV |
+| GET/POST | `/api/authenticity/config` | 模型真实性的 MCP / 证明页配置（headers 加密存储，读取时打码） |
 
-测试类型 `kind`：`stress`、`token_audit`、`request_diff`、`injection`。
+测试类型 `kind`：`stress`、`token_audit`、`request_diff`、`injection`、`authenticity`。
 
 ---
 
@@ -334,6 +381,7 @@ npm run build
 - 分区指纹与隐藏指令规则
 - tiktoken / 启发式 / Gemini 规格选择
 - 注入规则判定与裁判 JSON 解析
+- 模型真实性：OpenAI / Claude / Gemini 两轮工具回环、随机 nonce 防回放、MCP/证明页配置加密、鉴权失败与“工具不支持”不误判
 
 端到端已验证：
 

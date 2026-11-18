@@ -180,6 +180,23 @@ func (s *Store) migrate() error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS authenticity_templates (
+			id TEXT PRIMARY KEY,
+			probe_id TEXT NOT NULL,
+			provider TEXT NOT NULL DEFAULT '',
+			name TEXT NOT NULL DEFAULT '',
+			version INTEGER NOT NULL DEFAULT 1,
+			status TEXT NOT NULL DEFAULT 'draft',
+			spec_json TEXT NOT NULL DEFAULT '{}',
+			sample_request_json TEXT NOT NULL DEFAULT '',
+			sample_response_json TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
+			source_run_id TEXT NOT NULL DEFAULT '',
+			source_item_id INTEGER NOT NULL DEFAULT 0,
+			created_by TEXT NOT NULL DEFAULT '',
+			created_at INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_auth_tpl_probe ON authenticity_templates(probe_id, provider, status, version DESC)`,
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -740,6 +757,7 @@ func (s *Store) InsertItems(items []model.Item) error {
 type ItemFilter struct {
 	RunID    string
 	Model    string
+	CaseID   string
 	OnlyFail bool
 	OnlyOK   bool
 	Verdict  string
@@ -762,6 +780,10 @@ func (s *Store) ListItems(f ItemFilter) ([]model.Item, int, error) {
 	if f.Model != "" {
 		where = append(where, "model=?")
 		args = append(args, f.Model)
+	}
+	if f.CaseID != "" {
+		where = append(where, "case_id=?")
+		args = append(args, f.CaseID)
 	}
 	if f.OnlyFail {
 		where = append(where, "ok=0")
@@ -1058,6 +1080,131 @@ func (s *Store) GetSetting(key, def string) string {
 
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(`INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
+
+// SetSecretSetting encrypts the value with the process master key before it is
+// written to the settings table. Used for hosted MCP headers and similar
+// credentials that must not sit in plaintext in SQLite or in a run config.
+func (s *Store) SetSecretSetting(key, plain string) error {
+	enc, err := s.box.Encrypt(plain)
+	if err != nil {
+		return err
+	}
+	return s.SetSetting(key, enc)
+}
+
+func (s *Store) GetSecretSetting(key string) (string, error) {
+	enc := s.GetSetting(key, "")
+	if enc == "" {
+		return "", nil
+	}
+	return s.box.Decrypt(enc)
+}
+
+// ---------- authenticity templates ----------
+
+func (s *Store) CreateAuthenticityTemplate(t *model.AuthenticityTemplate) error {
+	if t.ID == "" {
+		t.ID = model.NewID("at_")
+	}
+	if t.CreatedAt == 0 {
+		t.CreatedAt = model.NowMs()
+	}
+	if t.Status == "" {
+		t.Status = "draft"
+	}
+	var maxVersion int
+	_ = s.db.QueryRow(`SELECT COALESCE(MAX(version),0) FROM authenticity_templates WHERE probe_id=? AND provider=?`,
+		t.ProbeID, t.Provider).Scan(&maxVersion)
+	t.Version = maxVersion + 1
+	_, err := s.db.Exec(`INSERT INTO authenticity_templates
+		(id,probe_id,provider,name,version,status,spec_json,sample_request_json,sample_response_json,note,source_run_id,source_item_id,created_by,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		t.ID, t.ProbeID, t.Provider, t.Name, t.Version, t.Status, t.Spec,
+		t.SampleRequest, t.SampleResponse, t.Note, t.SourceRunID, t.SourceItemID, t.CreatedBy, t.CreatedAt)
+	return err
+}
+
+func (s *Store) ListAuthenticityTemplates(probeID string, includeArchived bool) ([]model.AuthenticityTemplate, error) {
+	where := []string{"1=1"}
+	args := []any{}
+	if strings.TrimSpace(probeID) != "" {
+		where = append(where, "probe_id=?")
+		args = append(args, probeID)
+	}
+	if !includeArchived {
+		where = append(where, "status<>'archived'")
+	}
+	rows, err := s.db.Query(`SELECT id,probe_id,provider,name,version,status,spec_json,sample_request_json,sample_response_json,note,source_run_id,source_item_id,created_by,created_at
+		FROM authenticity_templates WHERE `+strings.Join(where, " AND ")+` ORDER BY probe_id, provider, version DESC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.AuthenticityTemplate{}
+	for rows.Next() {
+		t, err := scanAuthenticityTemplate(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetAuthenticityTemplate(id string) (*model.AuthenticityTemplate, error) {
+	row := s.db.QueryRow(`SELECT id,probe_id,provider,name,version,status,spec_json,sample_request_json,sample_response_json,note,source_run_id,source_item_id,created_by,created_at
+		FROM authenticity_templates WHERE id=?`, id)
+	t, err := scanAuthenticityTemplate(row)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func scanAuthenticityTemplate(rows scanner) (model.AuthenticityTemplate, error) {
+	var t model.AuthenticityTemplate
+	err := rows.Scan(&t.ID, &t.ProbeID, &t.Provider, &t.Name, &t.Version, &t.Status, &t.Spec,
+		&t.SampleRequest, &t.SampleResponse, &t.Note, &t.SourceRunID, &t.SourceItemID, &t.CreatedBy, &t.CreatedAt)
+	return t, err
+}
+
+func (s *Store) ActiveAuthenticityTemplate(probeID, provider string) (*model.AuthenticityTemplate, error) {
+	row := s.db.QueryRow(`SELECT id,probe_id,provider,name,version,status,spec_json,sample_request_json,sample_response_json,note,source_run_id,source_item_id,created_by,created_at
+		FROM authenticity_templates WHERE probe_id=? AND (provider='' OR provider=?) AND status='active'
+		ORDER BY CASE WHEN provider=? THEN 0 ELSE 1 END, version DESC LIMIT 1`,
+		probeID, provider, provider)
+	t, err := scanAuthenticityTemplate(row)
+	if err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *Store) PublishAuthenticityTemplate(id string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	var probeID, provider string
+	if err := tx.QueryRow(`SELECT probe_id,provider FROM authenticity_templates WHERE id=?`, id).Scan(&probeID, &provider); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE authenticity_templates SET status='archived' WHERE probe_id=? AND provider=? AND status='active'`, probeID, provider); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE authenticity_templates SET status='active' WHERE id=?`, id); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ArchiveAuthenticityTemplate(id string) error {
+	_, err := s.db.Exec(`UPDATE authenticity_templates SET status='archived' WHERE id=? AND status<>'archived'`, id)
 	return err
 }
 

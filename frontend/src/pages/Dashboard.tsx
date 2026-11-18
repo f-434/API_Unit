@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Alert, Button, Card, Space, Table, Tag } from 'antd'
 import {
   BugOutlined, DiffOutlined, FileSearchOutlined, ThunderboltOutlined, CloudServerOutlined,
-  AppstoreOutlined, ExperimentOutlined,
+  AppstoreOutlined, ExperimentOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
 import { Kpi, KindTag, PageHeader, StatusTag, TargetTags } from '../components/common'
@@ -14,6 +14,7 @@ const quick = [
   { key: '/audit/new', icon: <FileSearchOutlined />, title: 'Token 审计', desc: '多上游输入 Token 对比，结合本地分词器检测异常膨胀与重复波动。', color: '#d97706' },
   { key: '/request-audit/new', icon: <DiffOutlined />, title: '请求差异审计', desc: '完整请求快照、SHA-256 指纹、JSONPath 结构化 Diff 与隐藏指令扫描。', color: '#7c3aed' },
   { key: '/injection/new', icon: <BugOutlined />, title: '提示词注入', desc: '规则 + LLM 裁判混合判定，输出 ASR、分类风险与用例明细。', color: '#dc2626' },
+  { key: '/authenticity/new', icon: <SafetyCertificateOutlined />, title: '模型真实性', desc: '本地随机挑战 + 可选 MCP/证明页，多模型并发验证模型与来源。', color: '#0891b2' },
 ]
 
 export default function Dashboard() {

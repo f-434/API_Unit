@@ -8,7 +8,7 @@ import {
   ArrowLeftOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons'
 import { api, subscribeRun } from '../api'
-import type { AuditReport, InjectionReport, Live, RequestDiffReport } from '../types'
+import type { AuditReport, AuthenticityReport, InjectionReport, Live, RequestDiffReport } from '../types'
 import {
   kindLabel, kindColor, fmtInt, fmtPct, fmtDuration, fmtTime, fmtCost,
   auditCellStats, statusLabel,
@@ -18,6 +18,7 @@ import { SeriesCharts } from '../components/charts'
 import StressReportView from '../components/StressReportView'
 import AuditReportView from '../components/AuditReportView'
 import InjectionReportView from '../components/InjectionReportView'
+import AuthenticityReportView from '../components/AuthenticityReportView'
 import RunItems from '../components/RunItems'
 import { DiffPanel, FindingsTable, SnapshotTable } from '../components/RequestDiffTabs'
 import { stressPlan } from '../progress'
@@ -185,35 +186,53 @@ export default function RunDetail() {
 
   const isRunning = status === 'running' || status === 'queued'
   const plan = kind === 'stress' ? stressPlan(data.config, live) : null
+  const authReport = kind === 'authenticity'
+    ? (reportData as AuthenticityReport | undefined)
+    : undefined
+  const authSummary = authReport?.summary
+  const authTests = (authReport?.models || []).reduce((n, m) => n + (m.repetitions || 1), 0)
   const headerKpis = (
     <div className="kpi-grid" style={{ marginBottom: 14 }}>
       <Kpi label="状态" value={<StatusTag status={status} />} />
-      <Kpi label="总请求" value={fmtInt(summary?.total ?? live?.completed)} />
-      <Kpi label="成功 / 失败" value={<span>{fmtInt(summary?.success ?? live?.success)} / {fmtInt(summary?.failed ?? live?.failed)}</span>} />
-      {kind === 'token_audit' ? (
+      {authSummary ? (
         <>
-          <Kpi
-            label="审计成功率"
-            value={auditStats.rate === undefined ? '-' : fmtPct(auditStats.rate)}
-            color={auditStats.rate === undefined ? undefined : auditStats.rate >= 100 ? '#16a34a' : '#d97706'}
-          />
-          <Kpi label="请求成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
+          <Kpi label="模型数" value={fmtInt(authSummary.models)} />
+          <Kpi label="测试次数" value={fmtInt(authTests)} />
+          <Kpi label="通过 / 较可信" value={<span style={{ color: '#16a34a' }}>{authSummary.authentic} / {authSummary.likely}</span>} />
+          <Kpi label="可疑 / 仿冒" value={<span style={{ color: authSummary.counterfeit ? '#dc2626' : '#d97706' }}>{authSummary.suspicious} / {authSummary.counterfeit}</span>} />
+          <Kpi label="证据不足" value={fmtInt(authSummary.inconclusive)} />
+          <Kpi label="检查 通过 / 失败 / N/A" value={`${authSummary.passed} / ${authSummary.failed} / ${authSummary.na}`} />
         </>
       ) : (
-        <Kpi label="成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
-      )}
-      {kind === 'injection' ? (
-        <Kpi label="ASR" value={fmtPct(summary?.asr)} color={(summary?.asr || 0) > 0 ? '#dc2626' : undefined} />
-      ) : (
-        <Kpi label="QPS" value={((summary?.qps ?? live?.qps) || 0).toFixed(2)} />
-      )}
-      {kind === 'stress' && <Kpi label="RPM" value={((summary?.rpm ?? live?.rpm) || 0).toFixed(2)} />}
-      {kind === 'stress' && isRunning && plan && (
-        <Kpi
-          label="进度"
-          value={`${plan.percent.toFixed(0)}%`}
-          suffix={plan.remainingMs > 0 ? `${plan.estimated ? '预计剩' : '剩'} ${fmtDuration(plan.remainingMs)}` : undefined}
-        />
+        <>
+          <Kpi label="总请求" value={fmtInt(summary?.total ?? live?.completed)} />
+          <Kpi label="成功 / 失败" value={<span>{fmtInt(summary?.success ?? live?.success)} / {fmtInt(summary?.failed ?? live?.failed)}</span>} />
+          {kind === 'token_audit' ? (
+            <>
+              <Kpi
+                label="审计成功率"
+                value={auditStats.rate === undefined ? '-' : fmtPct(auditStats.rate)}
+                color={auditStats.rate === undefined ? undefined : auditStats.rate >= 100 ? '#16a34a' : '#d97706'}
+              />
+              <Kpi label="请求成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
+            </>
+          ) : (
+            <Kpi label="成功率" value={fmtPct(summary?.successRate ?? live?.successRate)} />
+          )}
+          {kind === 'injection' ? (
+            <Kpi label="ASR" value={fmtPct(summary?.asr)} color={(summary?.asr || 0) > 0 ? '#dc2626' : undefined} />
+          ) : (
+            <Kpi label="QPS" value={((summary?.qps ?? live?.qps) || 0).toFixed(2)} />
+          )}
+          {kind === 'stress' && <Kpi label="RPM" value={((summary?.rpm ?? live?.rpm) || 0).toFixed(2)} />}
+          {kind === 'stress' && isRunning && plan && (
+            <Kpi
+              label="进度"
+              value={`${plan.percent.toFixed(0)}%`}
+              suffix={plan.remainingMs > 0 ? `${plan.estimated ? '预计剩' : '剩'} ${fmtDuration(plan.remainingMs)}` : undefined}
+            />
+          )}
+        </>
       )}
       <Kpi label="耗时" value={fmtDuration(summary?.elapsedMs ?? live?.elapsedMs)} />
       <Kpi label="成本" value={fmtCost(summary?.cost)} />
@@ -268,6 +287,15 @@ export default function RunDetail() {
     tabs = [
       { key: 'overview', label: '风险总览', children: <InjectionReportView report={reportData as InjectionReport} live={live} /> },
       { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
+      { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
+      { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
+    ]
+  } else if (kind === 'authenticity') {
+    tabs = [
+      {
+        key: 'overview', label: '检测结果',
+        children: <AuthenticityReportView report={reportData as AuthenticityReport | undefined} runId={id} live={live} />,
+      },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
     ]

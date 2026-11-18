@@ -1,4 +1,4 @@
-export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection'
+export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection' | 'authenticity'
 export type Protocol = 'auto' | 'openai' | 'claude' | 'gemini'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'stopped' | 'failed' | 'interrupted'
 
@@ -543,6 +543,159 @@ export interface InjectionReport {
   ruleDecisive: number
   llmJudged: number
   notes: string[]
+}
+
+export type AuthenticityVerdict =
+  | 'authentic' | 'likely' | 'suspicious' | 'counterfeit' | 'inconclusive' | 'error'
+
+export interface AuthenticitySource {
+  name: string
+  confidence: 'high' | 'medium' | 'low' | 'unknown' | string
+  evidence?: string[]
+}
+
+export interface AuthenticityCheck {
+  id: string
+  group: string
+  groupName: string
+  name: string
+  status: 'pass' | 'fail' | 'na' | 'warn'
+  weight: 'hard' | 'capability' | 'metadata' | 'soft' | string
+  evidence?: string
+  durationMs?: number
+  caseId?: string
+  repetition?: number
+}
+
+export interface AuthenticityDimension {
+  key: string
+  name: string
+  passed: number
+  failed: number
+  na: number
+}
+
+export interface AuthenticityChallenge {
+  toolName: string
+  nonce: string
+  secret: string
+  a: number
+  b: number
+  sum: number
+}
+
+export interface AuthenticityRepVerdict {
+  repetition: number
+  verdict: AuthenticityVerdict
+  confidence: string
+  passed: number
+  failed: number
+  na: number
+  durationMs: number
+  error?: string
+}
+
+export interface AuthenticityModelReport {
+  targetId: string
+  targetName: string
+  model: string
+  protocol: string
+  endpoint: string
+  responseModel?: string
+  source: AuthenticitySource
+  verdict: AuthenticityVerdict
+  verdictLabel: string
+  confidence: string
+  repetition?: number
+  repetitions: number
+  repVerdicts?: AuthenticityRepVerdict[]
+  passed: number
+  failed: number
+  na: number
+  total: number
+  durationMs: number
+  dimensions: AuthenticityDimension[]
+  checks: AuthenticityCheck[]
+  challenge?: AuthenticityChallenge
+  error?: string
+}
+
+export interface AuthenticityLiveModel {
+  targetId: string
+  targetName: string
+  model: string
+  protocol: string
+  repetition: number
+  totalRepetitions: number
+  stage: string
+  done: boolean
+  verdict?: AuthenticityVerdict | ''
+  error?: string
+  startedAt: number
+  elapsedMs: number
+  checks: AuthenticityCheck[]
+}
+
+export interface AuthenticityReport {
+  models: AuthenticityModelReport[]
+  summary: {
+    models: number
+    authentic: number
+    likely: number
+    suspicious: number
+    counterfeit: number
+    inconclusive: number
+    error: number
+    passed: number
+    failed: number
+    na: number
+  }
+  notes: string[]
+}
+
+export interface AuthenticityTemplate {
+  id: string
+  probeId: string
+  provider: string
+  name: string
+  version: number
+  status: 'draft' | 'active' | 'archived' | string
+  spec: string
+  sampleRequest?: string
+  sampleResponse?: string
+  note?: string
+  sourceRunId?: string
+  sourceItemId?: number
+  createdBy?: string
+  createdAt: number
+}
+
+export interface AuthenticityHostedConfig {
+  profile: 'generic' | 't1y-legacy' | 'custom' | string
+  defaultEnabled: boolean
+  providers: Record<string, boolean>
+  mcp: {
+    serverLabel: string
+    serverDescription: string
+    serverUrl: string
+    headers: Record<string, string>
+    requireApproval: string
+    toolName: string
+  }
+  proof: {
+    baseUrl: string
+    domain: string
+    pathTemplate: string
+    expectedNonceField: string
+  }
+  legacy: {
+    domain: string
+    envVar: string
+    expectedEnvValue: string
+    collection: string
+    expectedRecord: Record<string, any>
+    keyword: string
+  }
 }
 
 export interface Meta {

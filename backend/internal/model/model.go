@@ -24,10 +24,11 @@ const (
 type RunKind string
 
 const (
-	KindStress      RunKind = "stress"
-	KindTokenAudit  RunKind = "token_audit"
-	KindRequestDiff RunKind = "request_diff"
-	KindInjection   RunKind = "injection"
+	KindStress       RunKind = "stress"
+	KindTokenAudit   RunKind = "token_audit"
+	KindRequestDiff  RunKind = "request_diff"
+	KindInjection    RunKind = "injection"
+	KindAuthenticity RunKind = "authenticity"
 )
 
 type RunStatus string
@@ -493,6 +494,26 @@ type SnapshotDetail struct {
 
 func (s Snapshot) Detail() SnapshotDetail {
 	return SnapshotDetail{Snapshot: s, Body: s.Body, Canonical: s.Canonical}
+}
+
+// AuthenticityTemplate is one immutable version of an authenticity probe
+// expectation. New versions are inserted as drafts; publishing archives the
+// previous active version, so the change history is never overwritten.
+type AuthenticityTemplate struct {
+	ID             string `json:"id"`
+	ProbeID        string `json:"probeId"`
+	Provider       string `json:"provider"`
+	Name           string `json:"name"`
+	Version        int    `json:"version"`
+	Status         string `json:"status"` // draft | active | archived
+	Spec           string `json:"spec"`
+	SampleRequest  string `json:"sampleRequest,omitempty"`
+	SampleResponse string `json:"sampleResponse,omitempty"`
+	Note           string `json:"note,omitempty"`
+	SourceRunID    string `json:"sourceRunId,omitempty"`
+	SourceItemID   int64  `json:"sourceItemId,omitempty"`
+	CreatedBy      string `json:"createdBy,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
 }
 
 type RunView struct {

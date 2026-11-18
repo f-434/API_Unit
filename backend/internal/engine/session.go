@@ -105,6 +105,7 @@ type Session struct {
 
 	prices     []model.Price
 	persistErr atomic.Value
+	moduleRes  atomic.Value
 }
 
 func NewSession(runID string, kind model.RunKind, st *store.Store, client *protocol.Client, counter *tokens.Counter, prices []model.Price) *Session {
@@ -191,6 +192,65 @@ func (s *Session) Headline() model.RunSummary { return s.live.headline(float64(s
 
 func (s *Session) FinalAggregate() (model.Aggregate, []model.ModelAggregate) {
 	return s.live.finalAggregate(float64(s.ElapsedMs()))
+}
+
+func (s *Session) Counter() *tokens.Counter { return s.counter }
+
+type moduleResultBox struct{ V any }
+
+// SetModuleResult stores a module-specific report that Summary can read after
+// Run returns. It is deliberately not part of Live.Extra so large reports are
+// not re-broadcast over SSE every 500ms.
+func (s *Session) SetModuleResult(v any) { s.moduleRes.Store(&moduleResultBox{V: v}) }
+
+func (s *Session) ModuleResult() any {
+	if v, ok := s.moduleRes.Load().(*moduleResultBox); ok && v != nil {
+		return v.V
+	}
+	return nil
+}
+
+// Record persists an item produced outside Session.Exec. Modules that need
+// request shapes Exec cannot express (OpenAI Responses, remote MCP, a
+// client-side tool-call loop) use this to keep live metrics, SSE updates and
+// SQLite persistence on the same path as the built-in modules.
+func (s *Session) Record(it model.Item) model.Item {
+	if it.RunID == "" {
+		it.RunID = s.RunID
+	}
+	it.Index = int(s.seq.Add(1) - 1)
+	if it.StartedAt == 0 {
+		it.StartedAt = model.NowMs()
+	}
+	if it.StartOffsetMs == 0 {
+		it.StartOffsetMs = float64(time.Since(s.started).Microseconds()) / 1000.0
+	}
+	if it.Meta == nil {
+		it.Meta = map[string]any{}
+	}
+	if it.TotalTokens < it.PromptTokens+it.CompletionTokens {
+		it.TotalTokens = it.PromptTokens + it.CompletionTokens
+	}
+	if it.TokenSource == "" {
+		if it.PromptTokens > 0 || it.CompletionTokens > 0 {
+			it.TokenSource = "usage"
+		} else {
+			it.TokenSource = "none"
+		}
+	}
+	if it.Cost == 0 {
+		it.Cost = s.costFor(it.Model, it)
+	}
+	endpoint, _ := it.Meta["endpoint"].(string)
+	s.live.record(it, endpoint)
+	if s.itemsOpen.Load() {
+		select {
+		case s.itemCh <- it:
+		default:
+			s.live.addExtra("persistDropped", 1)
+		}
+	}
+	return it
 }
 
 func (s *Session) LiveSnapshot() *model.Live {

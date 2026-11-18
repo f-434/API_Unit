@@ -80,6 +80,17 @@ export const api = {
   reloadTokenizers: () => post<any>('/api/tokenizers/reload'),
   resetGeminiTokenizer: (download = true) => post<any>('/api/tokenizers/reset', { download }),
   purgeRuns: (days: number) => post<{ deleted: number }>('/api/settings/purge', { days }),
+  authenticityConfig: () => get<{ settings: any }>('/api/authenticity/config'),
+  saveAuthenticityConfig: (settings: any) => post<{ settings: any }>('/api/authenticity/config', settings),
+  authenticityTemplates: (params: Record<string, string | number | undefined> = {}) => {
+    const q = new URLSearchParams()
+    Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
+    return get<{ items: any[] }>(`/api/authenticity/templates?${q}`)
+  },
+  authenticityTemplate: (id: string) => get<{ item: any }>(`/api/authenticity/templates/${id}`),
+  createAuthenticityTemplate: (body: any) => post<{ item: any }>('/api/authenticity/templates', body),
+  publishAuthenticityTemplate: (id: string) => post<{ ok: boolean }>(`/api/authenticity/templates/${id}/publish`),
+  archiveAuthenticityTemplate: (id: string) => post<{ ok: boolean }>(`/api/authenticity/templates/${id}/archive`),
 
   createRun: (kind: Kind, config: any) => post<{ id: string; run: Run }>('/api/runs', { kind, config }),
   runs: (params: { kind?: string; status?: string; limit?: number; offset?: number } = {}) => {

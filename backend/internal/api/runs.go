@@ -256,6 +256,7 @@ func (s *Server) handleRunItems(w http.ResponseWriter, r *http.Request) {
 	filter := store.ItemFilter{
 		RunID:    chi.URLParam(r, "id"),
 		Model:    q.Get("model"),
+		CaseID:   q.Get("caseId"),
 		OnlyFail: q.Get("onlyFail") == "1" || q.Get("onlyFail") == "true",
 		OnlyOK:   q.Get("onlyOk") == "1",
 		Verdict:  q.Get("verdict"),

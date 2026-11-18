@@ -4,6 +4,7 @@ import { Alert, Button, Descriptions, InputNumber, Popconfirm, Space, Table, Tag
 import { CloudDownloadOutlined, DeleteOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { EllipsisText, PageHeader } from '../components/common'
+import AuthenticityHostedSettings from '../components/AuthenticityHostedSettings'
 import { fmtDuration } from '../format'
 
 export default function Settings() {
@@ -169,6 +170,8 @@ export default function Settings() {
           ]}
         />
       </div>
+
+      <AuthenticityHostedSettings />
 
       <div className="panel">
         <div className="panel-title">数据清理</div>

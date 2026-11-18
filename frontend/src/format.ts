@@ -62,6 +62,7 @@ export const kindLabel = (k?: string) => {
     case 'token_audit': return 'Token 审计'
     case 'request_diff': return '请求差异审计'
     case 'injection': return '提示词注入'
+    case 'authenticity': return '模型真实性'
     default: return k || '-'
   }
 }
@@ -72,6 +73,7 @@ export const kindColor = (k?: string) => {
     case 'token_audit': return 'gold'
     case 'request_diff': return 'purple'
     case 'injection': return 'red'
+    case 'authenticity': return 'cyan'
     default: return 'default'
   }
 }

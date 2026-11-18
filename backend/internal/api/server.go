@@ -56,6 +56,13 @@ func (s *Server) Router() http.Handler {
 		pr.Get("/api/meta", s.handleMeta)
 		pr.Get("/api/settings", s.handleSettings)
 		pr.Post("/api/settings/purge", s.handlePurge)
+		pr.Get("/api/authenticity/config", s.handleAuthenticityConfigGet)
+		pr.Post("/api/authenticity/config", s.handleAuthenticityConfigSave)
+		pr.Get("/api/authenticity/templates", s.handleAuthenticityTemplatesList)
+		pr.Post("/api/authenticity/templates", s.handleAuthenticityTemplateCreate)
+		pr.Get("/api/authenticity/templates/{id}", s.handleAuthenticityTemplateGet)
+		pr.Post("/api/authenticity/templates/{id}/publish", s.handleAuthenticityTemplatePublish)
+		pr.Post("/api/authenticity/templates/{id}/archive", s.handleAuthenticityTemplateArchive)
 
 		pr.Get("/api/targets", s.handleTargetsList)
 		pr.Post("/api/targets", s.handleTargetCreate)

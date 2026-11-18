@@ -50,16 +50,19 @@ export function ModelAutoComplete({ targetId, value, onChange, placeholder = '�
   return (
     <Space.Compact style={{ width: '100%' }}>
       <AutoComplete
+        size="middle"
         value={value}
         onChange={onChange}
         options={models.map((m: any) => ({ value: m.id, label: m.id }))}
         placeholder={targetId ? placeholder : '请先选择上游'}
         disabled={!targetId}
-        style={{ width: '100%' }}
+        style={{ width: '100%', minHeight: 32 }}
         filterOption={(input, option) => String(option?.value || '').toLowerCase().includes(input.toLowerCase())}
       />
       <Tooltip title={isError ? `获取模型失败：${(error as any)?.message || ''}` : '刷新模型列表'}>
         <Button
+          size="middle"
+          style={{ height: 32 }}
           icon={isError ? <WarningOutlined /> : <ReloadOutlined />}
           loading={isLoading}
           disabled={!targetId}
@@ -82,15 +85,17 @@ export function ModelMultiSelect({ targetId, value, onChange }: {
       <Space.Compact style={{ width: '100%' }}>
         <Select
           mode="tags"
+          size="middle"
+          maxTagCount="responsive"
           value={value}
           onChange={onChange}
           tokenSeparators={[',', '\n', ' ']}
           options={models.map((m: any) => ({ value: m.id, label: `${m.id}${m.ownedBy ? ` · ${m.ownedBy}` : ''}` }))}
           placeholder={targetId ? '选择或输入模型，可多选' : '请先选择上游'}
           disabled={!targetId}
-          style={{ width: '100%' }}
+          style={{ width: '100%', minHeight: 32 }}
         />
-        <Button icon={<ReloadOutlined />} loading={isLoading} disabled={!targetId} onClick={() => refetch()} />
+        <Button size="middle" style={{ height: 32 }} icon={<ReloadOutlined />} loading={isLoading} disabled={!targetId} onClick={() => refetch()} />
       </Space.Compact>
       {isError && <Typography.Text type="danger" style={{ fontSize: 12 }}>模型列表获取失败：{(error as any)?.message}</Typography.Text>}
     </Space>

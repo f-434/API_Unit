@@ -18,6 +18,14 @@ function actualModel(it: Item): string | undefined {
 }
 
 function statusTag(it: Item) {
+  const authenticity = it.meta?.authenticity
+  const checkStatus = it.meta?.checkStatus
+  if (authenticity && checkStatus === 'pass' && it.status >= 400) {
+    return <Tag color="orange">{it.status}（预期）</Tag>
+  }
+  if (authenticity && checkStatus === 'fail') {
+    return <Tag color="red">{it.status || '失败'}</Tag>
+  }
   if (it.status === 0) return <Tag color="default">网络/无响应</Tag>
   if (it.status < 200 || it.status >= 300) return <Tag color="red">{it.status}</Tag>
   if (it.ok) return <Tag color="green">{it.status}</Tag>
@@ -25,7 +33,7 @@ function statusTag(it: Item) {
   return <Tag color="orange">{it.status}</Tag>
 }
 
-function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: number; open: boolean; onClose: () => void }) {
+export function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; itemId?: number; open: boolean; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ['item', runId, itemId],
     queryFn: () => api.item(runId, itemId!),
@@ -164,6 +172,7 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
   const columns: any[] = [
     { title: '#', dataIndex: 'index', width: 58, render: (_: any, it: Item) => <span className="muted">{it.index + 1}</span> },
     { title: '时间', dataIndex: 'startedAt', width: 150, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
+    ...(kind === 'authenticity' ? [{ title: '轮次', dataIndex: 'repetition', width: 70, render: (v: number) => v ? <Tag>第 {v} 次</Tag> : '-' }] : []),
     { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono">{v}</span> },
     {
       title: '响应模型', key: 'responseModel', width: 200,
@@ -172,6 +181,14 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
     { title: '上游', dataIndex: 'targetName', width: 120, render: (v: string) => v || '-' },
     ...(kind !== 'stress' ? [{ title: '用例', dataIndex: 'caseName', width: 170 }] : []),
     ...(kind === 'injection' ? [{ title: '判定', dataIndex: 'verdict', width: 100, render: (v: string) => <VerdictTag verdict={v} /> }] : []),
+    ...(kind === 'authenticity' ? [{
+      title: '检查', dataIndex: 'verdict', width: 90,
+      render: (v: string) => {
+        const color = v === 'pass' ? 'green' : v === 'fail' ? 'red' : v === 'warn' ? 'gold' : 'default'
+        const label = v === 'pass' ? '通过' : v === 'fail' ? '失败' : v === 'warn' ? '警告' : 'N/A'
+        return <Tag color={color}>{label}</Tag>
+      },
+    }] : []),
     { title: '状态', width: 105, render: (_: any, it: Item) => statusTag(it) },
     { title: '延迟', dataIndex: 'latencyMs', width: 90, render: (v: number) => fmtMs(v) },
     { title: 'TTFT', dataIndex: 'ttftMs', width: 90, render: (v: number) => fmtMs(v) },

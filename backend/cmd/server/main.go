@@ -14,6 +14,7 @@ import (
 	"apiunit/internal/config"
 	"apiunit/internal/engine"
 	"apiunit/internal/model"
+	"apiunit/internal/modules/authenticity"
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/stress"
 	"apiunit/internal/modules/tokenaudit"
@@ -68,6 +69,7 @@ func main() {
 	manager.Register(tokenaudit.New(st))
 	manager.Register(requestdiff.New(st))
 	manager.Register(injection.New(st, client))
+	manager.Register(authenticity.New(st))
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,

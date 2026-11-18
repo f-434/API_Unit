@@ -18,6 +18,7 @@ import {
   ExperimentOutlined,
   HistoryOutlined,
   LogoutOutlined,
+  SafetyCertificateOutlined,
   SettingOutlined,
   ThunderboltOutlined,
   DollarOutlined,
@@ -35,6 +36,8 @@ import StressNew from "./pages/StressNew";
 import AuditNew from "./pages/AuditNew";
 import RequestDiffNew from "./pages/RequestDiffNew";
 import InjectionNew from "./pages/InjectionNew";
+import AuthenticityNew from "./pages/AuthenticityNew";
+import AuthenticityTemplates from "./pages/AuthenticityTemplates";
 import History from "./pages/History";
 import RunDetail from "./pages/RunDetail";
 import QuickActionsFab, { type QuickAction } from "./components/QuickActionsFab";
@@ -48,6 +51,8 @@ const menuItems = [
   { key: "/audit/new", icon: <FileSearchOutlined />, label: "Token 审计" },
   { key: "/request-audit/new", icon: <DiffOutlined />, label: "请求差异审计" },
   { key: "/injection/new", icon: <BugOutlined />, label: "提示词注入" },
+  { key: "/authenticity/new", icon: <SafetyCertificateOutlined />, label: "模型真实性" },
+  { key: "/authenticity/templates", icon: <FileSearchOutlined />, label: "真实性用例" },
   { key: "/runs", icon: <HistoryOutlined />, label: "测试历史" },
   { type: "divider" as const },
   { key: "/targets", icon: <CloudServerOutlined />, label: "上游 / 供应商" },
@@ -107,6 +112,8 @@ function Shell({ children }: { children: React.ReactNode }) {
     if (p.startsWith("/audit")) return ["/audit/new"];
     if (p.startsWith("/request-audit")) return ["/request-audit/new"];
     if (p.startsWith("/injection")) return ["/injection/new"];
+    if (p.startsWith("/authenticity/templates")) return ["/authenticity/templates"];
+    if (p.startsWith("/authenticity")) return ["/authenticity/new"];
     if (p.startsWith("/stress")) return ["/stress/new"];
     return [];
   }, [location.pathname]);
@@ -208,6 +215,8 @@ export default function App() {
                 <Route path="/audit/new" element={<AuditNew />} />
                 <Route path="/request-audit/new" element={<RequestDiffNew />} />
                 <Route path="/injection/new" element={<InjectionNew />} />
+                <Route path="/authenticity/new" element={<AuthenticityNew />} />
+                <Route path="/authenticity/templates" element={<AuthenticityTemplates />} />
                 <Route path="/runs" element={<History />} />
                 <Route path="/runs/:id" element={<RunDetail />} />
                 <Route path="/targets" element={<Targets />} />
