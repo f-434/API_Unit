@@ -260,7 +260,7 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 **四类证据**
 
 1. **接口指纹**：OpenAI Chat 的 `reasoning_effort=xxx`、Anthropic 的未知模型/未知 beta、Gemini 的非法 tools，期望返回官方校验错误结构。文案按官方 API 标定；不匹配只表示“未确认官方”，不单独判假。
-2. **响应来源**：优先看响应头（OpenAI/Azure/Anthropic/Bedrock/Vertex/Foundry/New API），其次看响应体特征（`content_filters`、`quota`、`trafficType`、`createTime`、`vertexaisearch`）。没有特征时输出“未识别/中转”，不会仅凭缺失就判官方。
+2. **响应来源**：按上游平台特征判定，中转网关单独展示。Claude 优先看响应头（Anthropic/Bedrock/Vertex/Foundry）；OpenAI 先看官方/Azure 响应头，再看 Chat Completions 的 `prompt_filter_results` / `content_filter_results`；Gemini 看 `trafficType`、`createTime`、`vertexaisearch`。按 model-proof 口径，Gemini 无 Vertex 特征时低置信度推断为 AI Studio，OpenAI 无 Azure 特征时低置信度推断为 OpenAI 官方；Claude 无官方响应头时仍判自定义端点/中转。`X-Oneapi` 等网关特征不会覆盖来源结论。
 3. **本地随机挑战**（API 层保留；Web 新建页不再暴露，默认关闭）：
    - 每次运行生成随机 `challenge`、`secret`、`a`、`b`；
    - 第 1 轮要求模型调用工具并传入 `challenge`；
@@ -290,7 +290,7 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 
 - 运行中通过 SSE 实时推送每个模型当前环节（指纹 / 来源 / 身份 / 一致性 / 工具调用情况）、已完成的检查项与失败证据，不必等整轮结束。
 - 新建页可勾选同一上游的多个模型；`concurrency` 控制同时测试的模型数（1–16），`repetitions` 控制每个模型完整重复几轮（1–5），报告中会显示每轮结论与汇总结论。
-- 测试完成后先按「模型 × 轮次」列表展示通过率；点击行展开逐条检查，按接口指纹、响应来源、工具调用情况、模型身份、数据一致性分组，显示通过/失败/警告/N/A、证据与“正文”入口。
+- 测试完成后先按「模型 × 轮次」列表展示通过率；点击行展开逐条检查，按接口指纹、响应来源、工具调用情况、模型身份、数据一致性分组，显示通过/失败/警告/N/A、证据，并可点击「请求/响应」行内展开该检查对应的请求体、响应体与白名单响应头。
 - 每个模型独立运行指纹、来源、身份、一致性与工具调用探针；单模型内探针默认串行。
 - 每个探针完整保存请求/响应正文（响应上限默认 8MB）；在检查行点「正文」查看对应请求/响应。
 - 结果统一进入「测试历史 / 测试详情」，支持 JSON/HTML/CSV 导出；HTML 报告包含模型汇总、测试执行列表与通过率、未通过检查和逐条检查明细，CSV 增加 `repetition` 与 `checks` 列。

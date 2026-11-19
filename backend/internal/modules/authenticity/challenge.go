@@ -108,11 +108,11 @@ func (r *modelRun) runChallenge() {
 	if !toolEmitted || !nameOK || !argsOK {
 		r.stage("能力挑战：第 1 轮未通过")
 		na := func(id, name, evidence string) CheckReport {
-			return CheckReport{ID: id, Group: GroupCapability, Name: name, Status: StatusNA, Weight: WeightCapability, Evidence: evidence, CaseID: "cap.turn2"}
+			return CheckReport{ID: id, Group: GroupCapability, Name: name, Status: StatusNA, Weight: WeightCapability, Evidence: evidence, CaseID: "cap.turn1"}
 		}
 		checks := []CheckReport{
 			{ID: "P3-11", Group: GroupCapability, Name: "两轮工具回环完成", Status: StatusFail, Weight: WeightCapability,
-				Evidence: "第 1 轮未完成有效工具调用，第 2 轮未执行"},
+				Evidence: "第 1 轮未完成有效工具调用，第 2 轮未执行", CaseID: "cap.turn1"},
 			na("P3-5", "第 2 轮请求成功", "第 1 轮失败，未执行"),
 			na("P3-6", "最终输出可解析为 JSON", "第 1 轮失败，未执行"),
 			na("P3-7", "challenge 精确回显", "第 1 轮失败，未执行"),

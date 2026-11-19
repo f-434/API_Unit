@@ -552,6 +552,8 @@ export interface AuthenticitySource {
   name: string
   confidence: 'high' | 'medium' | 'low' | 'unknown' | string
   evidence?: string[]
+  /** 中转网关特征（如 X-Oneapi-Request-Id），与上游来源分开展示 */
+  gateway?: string
 }
 
 export interface AuthenticityCheck {

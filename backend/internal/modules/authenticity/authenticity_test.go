@@ -38,6 +38,22 @@ func testStore(t *testing.T) (*store.Store, string) {
 
 func runModule(t *testing.T, st *store.Store, targetID string) *Report {
 	t.Helper()
+	return runModuleWith(t, st, targetID, Config{
+		Targets:   []TargetSpec{{TargetID: targetID, Models: []string{"gpt-6-luna"}, Protocol: "openai"}},
+		Checks:    ChecksConfig{Fingerprint: true, Source: true, Capability: true, Identity: true, Consistency: true},
+		Challenge: ChallengeConfig{ToolName: "proof_lookup", NonceLength: 16, MaxTokens: 256, ForceTool: true},
+	})
+}
+
+// runModuleWith 允许测试自定义 Config，并返回 runID 以便检查落库内容。
+func runModuleWith(t *testing.T, st *store.Store, targetID string, cfg Config) *Report {
+	t.Helper()
+	report, _ := runModuleWithID(t, st, targetID, cfg)
+	return report
+}
+
+func runModuleWithID(t *testing.T, st *store.Store, targetID string, cfg Config) (*Report, string) {
+	t.Helper()
 	runID := model.NewID("r_")
 	if err := st.CreateRun(&model.Run{ID: runID, Kind: model.KindAuthenticity, Status: model.StatusQueued}); err != nil {
 		t.Fatal(err)
@@ -49,11 +65,7 @@ func runModule(t *testing.T, st *store.Store, targetID string) *Report {
 	sess.StartPumps()
 
 	mod := New(st)
-	raw, _ := json.Marshal(Config{
-		Targets:   []TargetSpec{{TargetID: targetID, Models: []string{"gpt-6-luna"}, Protocol: "openai"}},
-		Checks:    ChecksConfig{Fingerprint: true, Source: true, Capability: true, Identity: true, Consistency: true},
-		Challenge: ChallengeConfig{ToolName: "proof_lookup", NonceLength: 16, MaxTokens: 256, ForceTool: true},
-	})
+	raw, _ := json.Marshal(cfg)
 	validated, err := mod.Validate(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +78,7 @@ func runModule(t *testing.T, st *store.Store, targetID string) *Report {
 	if !ok || report == nil {
 		t.Fatal("missing report")
 	}
-	return report
+	return report, runID
 }
 
 func TestOpenAIChallengeAuthentic(t *testing.T) {
@@ -154,6 +166,17 @@ func TestOpenAIChallengeAuthentic(t *testing.T) {
 	}
 	if r.Source.Name != "OpenAI 官方" || r.Source.Confidence != "high" {
 		t.Fatalf("source=%+v", r.Source)
+	}
+	// 每条检查都应能回溯到产生证据的请求/响应正文。
+	wantCase := map[string]bool{
+		"P2-1": true, "P2-2": true, "P2-3": true,
+		"P4-1": true, "P4-2": true, "P4-3": true,
+		"P5-1": true, "P5-2": true,
+	}
+	for _, c := range r.Checks {
+		if wantCase[c.ID] && c.CaseID == "" {
+			t.Fatalf("check %s (%s) has no caseId", c.ID, c.Name)
+		}
 	}
 }
 

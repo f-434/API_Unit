@@ -255,6 +255,16 @@ a { color: #165dff; }
 .auth-check-row.is-fail { border-color: #fecaca; background: #fff7f7; }
 .auth-check-row.is-warn { border-color: #fde68a; background: #fffdf4; }
 .auth-check-row.is-na { background: #fafafa; }
+.auth-check-item { margin-bottom: 8px; }
+.auth-check-item > .auth-check-row { margin-bottom: 0; }
+.auth-check-expanded {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fcfcfd;
+}
+.auth-check-expanded .json-block { margin-bottom: 0; }
 .auth-check-main { flex: 1; min-width: 0; }
 .auth-check-name { font-weight: 600; font-size: 13px; color: #1d2129; }
 .auth-check-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; color: #86909c; font-size: 12px; }

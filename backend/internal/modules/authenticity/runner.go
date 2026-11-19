@@ -34,7 +34,6 @@ type modelRun struct {
 
 	lastHeader       http.Header
 	lastBody         []byte
-	lastEndpoint     string
 	lastStatus       int
 	lastLatency      float64
 	lastModel        string
@@ -54,6 +53,11 @@ type modelRun struct {
 	challengePrompt  string
 	lastSuccess      bool
 	errorMsg         string
+
+	// sourceSamples 保存本次运行中所有成功（2xx）响应的样本。来源识别只使用
+	// 成功响应，避免最后一次请求失败时用错误体误判来源；同时保留产生证据的
+	// 用例 ID，便于前端回溯原始请求/响应。
+	sourceSamples []sourceSample
 }
 
 func runModel(ctx context.Context, sess *engine.Session, st *store.Store, cfg *Config, hosted HostedSettings, j job, pub *livePublisher) ModelReport {
@@ -311,7 +315,6 @@ func (r *modelRun) observe(res httpResult) {
 	if res.Body != nil {
 		r.lastBody = res.Body
 	}
-	r.lastEndpoint = res.Endpoint
 	r.lastStatus = res.Status
 	r.lastLatency = res.LatencyMs
 	if res.statusOK() {
@@ -360,6 +363,9 @@ func (r *modelRun) record(res httpResult, caseID, caseName, category, output str
 		it.Meta["checkName"] = checks[0].Name
 		it.Meta["evidence"] = checks[0].Evidence
 	}
+	if headers := responseHeaderSnapshot(res.Header, secrets); len(headers) > 0 {
+		it.Meta["responseHeaders"] = headers
+	}
 	if len(checks) > 1 {
 		ids := make([]string, 0, len(checks))
 		for _, c := range checks {
@@ -377,6 +383,13 @@ func (r *modelRun) record(res httpResult, caseID, caseName, category, output str
 		})
 	}
 	r.lastCaseID = caseID
+	if res.statusOK() {
+		r.sourceSamples = append(r.sourceSamples, sourceSample{
+			Header: res.Header,
+			Body:   res.Body,
+			CaseID: caseID,
+		})
+	}
 	if res.Err != nil {
 		it.ErrorType = "network"
 		it.ErrorMessage = redactSecrets(res.Err.Error(), secrets)
@@ -443,6 +456,51 @@ func redactSecrets(s string, secrets []string) string {
 		s = strings.ReplaceAll(s, secret, "***")
 	}
 	return s
+}
+
+// responseHeaderSnapshot keeps only diagnostic response headers. They are
+// persisted on the item so a human can verify source detection (x-ms-*,
+// x-amzn-*, x-goog-*, x-oneapi-*, OpenAI-Organization, etc.).
+func responseHeaderSnapshot(h http.Header, secrets []string) map[string]string {
+	if h == nil {
+		return nil
+	}
+	out := make(map[string]string)
+	for k, vals := range h {
+		lk := strings.ToLower(k)
+		if !diagnosticHeader(lk) {
+			continue
+		}
+		v := strings.TrimSpace(strings.Join(vals, ", "))
+		if v == "" {
+			continue
+		}
+		if len(v) > 512 {
+			v = v[:512] + "..."
+		}
+		out[k] = redactSecrets(v, secrets)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func diagnosticHeader(lk string) bool {
+	switch {
+	case strings.HasPrefix(lk, "x-"),
+		strings.HasPrefix(lk, "openai-"),
+		strings.HasPrefix(lk, "anthropic-"):
+		return true
+	case lk == "apim-request-id",
+		lk == "request-id",
+		lk == "server",
+		lk == "cf-ray",
+		lk == "via",
+		lk == "traceparent":
+		return true
+	}
+	return false
 }
 
 func previewText(s string) string {

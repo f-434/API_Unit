@@ -225,6 +225,10 @@ type SourceReport struct {
 	Name       string   `json:"name"`
 	Confidence string   `json:"confidence"` // high | medium | low | unknown
 	Evidence   []string `json:"evidence,omitempty"`
+	// Gateway 记录响应中检测到的中转网关特征（如 X-Oneapi-Request-Id）。
+	// 它与上游来源是两个维度：中转站可以原样转发官方响应，因此网关特征
+	// 不再覆盖来源判断，而是单独展示并用于 P2-3 检查。
+	Gateway string `json:"gateway,omitempty"`
 }
 
 type DimensionReport struct {

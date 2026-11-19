@@ -235,163 +235,301 @@ func (r *modelRun) fingerprintGeminiInvalidTools() {
 
 // ---------- source ----------
 
+// sourceSample 是本次运行中捕获到的一次成功（2xx）响应。来源识别只使用
+// 成功响应，避免最后一次请求失败时用错误响应体误判；同时保留产生证据的
+// 用例 ID，前端可据此回溯原始请求/响应。
+type sourceSample struct {
+	Header http.Header
+	Body   []byte
+	CaseID string
+}
+
+var gatewayHeaderKeys = []string{
+	"X-Oneapi-Request-Id",
+	"X-New-Api-Request-Id",
+	"X-Api-Request-Id",
+	"X-One-Api-Request-Id",
+}
+
 func (r *modelRun) runSource() {
-	if len(r.lastBody) == 0 {
+	if len(r.sourceSamples) == 0 {
 		r.add(CheckReport{
 			ID: "P2-1", Group: GroupSource, Name: "响应来源识别",
-			Status: StatusNA, Weight: WeightSoft, Evidence: "没有拿到可用于判断来源的成功响应",
+			Status: StatusNA, Weight: WeightSoft, CaseID: r.lastCaseID,
+			Evidence: "没有拿到可用于判断来源的成功响应",
 		})
+		r.add(endpointConsistencyCheck(r.endpoint, SourceReport{Name: "未识别", Confidence: "unknown"}, r.lastCaseID))
+		r.add(gatewayCheck(r.lastHeader, "", r.lastCaseID))
 		return
 	}
-	r.source = detectSource(r.protocolName, r.lastHeader, r.lastBody, r.lastEndpoint)
-	evidence := r.source.Name + " / 置信度 " + r.source.Confidence
-	if len(r.source.Evidence) > 0 {
-		evidence += "；" + strings.Join(r.source.Evidence, "；")
+	source, sourceCaseID := detectSource(r.protocolName, r.sourceSamples, r.endpoint)
+	r.source = source
+	evidence := source.Name + " / 置信度 " + source.Confidence
+	if source.Gateway != "" {
+		evidence += "；检测到中转特征 " + source.Gateway
+	}
+	if len(source.Evidence) > 0 {
+		evidence += "；" + strings.Join(source.Evidence, "；")
 	}
 	r.add(CheckReport{
 		ID: "P2-1", Group: GroupSource, Name: "响应来源识别",
-		Status: StatusPass, Weight: WeightSoft, Evidence: evidence,
+		Status: StatusPass, Weight: WeightSoft, Evidence: evidence, CaseID: sourceCaseID,
 	})
-	r.add(endpointConsistencyCheck(r.endpoint, r.source))
-	r.add(gatewayCheck(r.lastHeader))
+	r.add(endpointConsistencyCheck(r.endpoint, source, sourceCaseID))
+	r.add(gatewayCheck(r.lastHeader, source.Gateway, sourceCaseID))
 }
 
-func detectSource(proto model.Protocol, h http.Header, body []byte, endpoint string) SourceReport {
-	out := SourceReport{Name: "未识别（自定义端点 / 中转）", Confidence: "low"}
-	if h == nil {
-		h = http.Header{}
+// detectSource 按 model-proof 的口径识别“上游平台”，中转网关只作为单独
+// 维度（Gateway）展示，不再覆盖上游结论。
+//
+//   - Claude：只看响应头（中转可能原样转发响应体，不能作为来源证据）。
+//   - Gemini：trafficType / createTime / vertexaisearch 等 Vertex 特征；
+//     均不存在时按 model-proof 口径推断为 AI Studio（低置信度）。
+//   - OpenAI：Azure / 官方响应头优先；其次适配 Chat Completions 的 Azure
+//     内容过滤字段；均无特征时按 model-proof 口径推断为 OpenAI 官方（低置信度）。
+func detectSource(proto model.Protocol, samples []sourceSample, endpoint string) (SourceReport, string) {
+	gwKey, gwValue, gwCase := findHeader(samples, gatewayHeaderKeys...)
+	gateway := ""
+	if gwKey != "" {
+		gateway = gwKey + "=" + gwValue
 	}
-	has := func(keys ...string) (string, bool) {
-		for _, k := range keys {
-			if v := strings.TrimSpace(h.Get(k)); v != "" {
-				return k + "=" + v, true
-			}
+	lastCase := ""
+	for _, s := range samples {
+		if s.CaseID != "" {
+			lastCase = s.CaseID
 		}
-		return "", false
 	}
-	gatewayEvidence := ""
-	if v, ok := has("X-Oneapi-Request-Id", "X-New-Api-Request-Id", "X-Api-Request-Id", "X-One-Api-Request-Id"); ok {
-		gatewayEvidence = v
-	}
+
 	switch proto {
 	case model.ProtocolClaude:
-		if v, ok := has("X-Amzn-Bedrock-Request-Id", "X-Amzn-Requestid"); ok {
-			return SourceReport{Name: "Amazon Bedrock", Confidence: "high", Evidence: []string{v}}
+		if k, v, cid := findHeader(samples, "X-Amzn-Bedrock-Request-Id", "X-Amzn-Requestid"); k != "" {
+			return newSource("Amazon Bedrock", "high", []string{k + "=" + v}, gateway), cid
 		}
-		if v, ok := has("X-Goog-Request-Id", "X-Goog-Api-Client"); ok {
-			return SourceReport{Name: "Google Vertex AI", Confidence: "high", Evidence: []string{v}}
+		if k, v, cid := findHeader(samples, "X-Goog-Request-Id", "X-Goog-Api-Client"); k != "" {
+			return newSource("Google Vertex AI", "high", []string{k + "=" + v}, gateway), cid
 		}
-		if v, ok := has("Apim-Request-Id", "X-Ms-Request-Id", "X-Ms-Region"); ok {
-			return SourceReport{Name: "Microsoft Foundry", Confidence: "high", Evidence: []string{v}}
+		if k, v, cid := findHeader(samples, "Apim-Request-Id", "X-Ms-Request-Id", "X-Ms-Region"); k != "" {
+			return newSource("Microsoft Foundry", "high", []string{k + "=" + v}, gateway), cid
 		}
-		if v, ok := has("Anthropic-Organization-Id"); ok {
-			return SourceReport{Name: "Anthropic 官方", Confidence: "high", Evidence: []string{v}}
+		if k, v, cid := findHeader(samples, "Anthropic-Organization-Id"); k != "" {
+			return newSource("Anthropic 官方", "high", []string{k + "=" + v}, gateway), cid
 		}
-		for k := range h {
-			if strings.HasPrefix(strings.ToLower(k), "anthropic-ratelimit-") {
-				return SourceReport{Name: "Anthropic 官方", Confidence: "high", Evidence: []string{strings.ToLower(k)}}
-			}
+		if k, v, cid := findHeaderPrefix(samples, "anthropic-ratelimit-"); k != "" {
+			return newSource("Anthropic 官方", "high", []string{k + "=" + v}, gateway), cid
 		}
-		if strings.HasPrefix(strings.TrimSpace(h.Get("Request-Id")), "req_") {
-			return SourceReport{Name: "Anthropic 官方", Confidence: "high", Evidence: []string{"Request-Id=" + h.Get("Request-Id")}}
+		if k, v, cid := findHeader(samples, "Request-Id"); k != "" && strings.HasPrefix(strings.TrimSpace(v), "req_") {
+			return newSource("Anthropic 官方", "high", []string{k + "=" + v}, gateway), cid
 		}
-		if gatewayEvidence != "" {
-			return SourceReport{Name: "中转网关（上游未知）", Confidence: "medium", Evidence: []string{gatewayEvidence}}
+		if hint := endpointSourceHint(endpoint); hint == "Anthropic 官方" {
+			return newSource("Anthropic 官方（端点推断）", "medium", nil, gateway), lastCase
 		}
-		if hint := endpointSourceHint(endpoint); hint != "" {
-			return SourceReport{Name: hint + "（端点推断）", Confidence: "low"}
+		if gateway != "" {
+			return newSource("自定义端点 / 中转（上游未知）", "low", []string{gateway}, gateway), gwCase
 		}
-		return out
+		return newSource("自定义端点（上游未知）", "low", nil, gateway), lastCase
 
 	case model.ProtocolGemini:
-		m := decodeObject(body)
-		if m != nil {
+		for _, s := range samples {
+			m := decodeObject(s.Body)
+			if m == nil {
+				continue
+			}
 			if v := getString(m, "usageMetadata", "trafficType"); v != "" {
-				return SourceReport{Name: "Google Vertex AI", Confidence: "medium", Evidence: []string{"usageMetadata.trafficType=" + v}}
+				return newSource("Google Vertex AI", "medium", []string{"usageMetadata.trafficType=" + v}, gateway), s.CaseID
 			}
 			if v := getString(m, "createTime"); v != "" {
-				return SourceReport{Name: "Google Vertex AI", Confidence: "medium", Evidence: []string{"createTime=" + v}}
+				return newSource("Google Vertex AI", "medium", []string{"createTime=" + v}, gateway), s.CaseID
+			}
+			if strings.Contains(string(s.Body), "vertexaisearch.cloud.google.com") {
+				return newSource("Google Vertex AI", "medium", []string{"grounding 经 vertexaisearch.cloud.google.com 跳转"}, gateway), s.CaseID
 			}
 		}
-		if strings.Contains(string(body), "vertexaisearch.cloud.google.com") {
-			return SourceReport{Name: "Google Vertex AI", Confidence: "medium", Evidence: []string{"grounding 经 vertexaisearch.cloud.google.com"}}
+		hint := endpointSourceHint(endpoint)
+		if hint == "Google Vertex AI" {
+			return newSource("Google Vertex AI（端点推断）", "medium", nil, gateway), lastCase
 		}
-		if gatewayEvidence != "" {
-			return SourceReport{Name: "中转网关（上游未知）", Confidence: "medium", Evidence: []string{gatewayEvidence}}
+		if hint == "Google AI Studio" {
+			return newSource("Google AI Studio（端点推断）", "medium", nil, gateway), lastCase
 		}
-		if hint := endpointSourceHint(endpoint); strings.Contains(hint, "AI Studio") {
-			return SourceReport{Name: "Google AI Studio（端点推断）", Confidence: "medium"}
-		}
-		return SourceReport{Name: "Google AI Studio（未检测到 Vertex 特征）", Confidence: "low"}
+		// 与 model-proof 一致：没有任何 Vertex 特征时推断为 AI Studio。
+		// 经中转站时仍可能是被剥离特征的 Vertex，因此只给低置信度。
+		return newSource("Google AI Studio（未检测到 Vertex 特征）", "low", nil, gateway), lastCase
 
 	default:
-		if v, ok := has("X-Ms-Request-Id", "Apim-Request-Id", "X-Ms-Region"); ok {
-			return SourceReport{Name: "Microsoft Azure", Confidence: "high", Evidence: []string{v}}
+		if k, v, cid := findHeader(samples, "X-Ms-Request-Id", "Apim-Request-Id", "X-Ms-Region"); k != "" {
+			return newSource("Microsoft Azure", "high", []string{k + "=" + v}, gateway), cid
 		}
-		if v, ok := has("Openai-Organization", "Openai-Processing-Ms", "Openai-Version"); ok {
-			return SourceReport{Name: "OpenAI 官方", Confidence: "high", Evidence: []string{v}}
+		if k, v, cid := findHeader(samples, "Openai-Organization", "Openai-Processing-Ms", "Openai-Version"); k != "" {
+			return newSource("OpenAI 官方", "high", []string{k + "=" + v}, gateway), cid
 		}
-		m := decodeObject(body)
-		if m != nil {
-			if _, ok := m["content_filters"]; ok {
-				return SourceReport{Name: "Microsoft Azure", Confidence: "medium", Evidence: []string{"响应含 content_filters"}}
+		for _, s := range samples {
+			m := decodeObject(s.Body)
+			if m == nil {
+				continue
 			}
-			if _, ok := m["quota"]; ok {
-				return SourceReport{Name: "Microsoft Azure", Confidence: "medium", Evidence: []string{"响应含 quota"}}
+			if sig := azureBodySignature(m); sig != "" {
+				return newSource("Microsoft Azure", "medium", []string{sig}, gateway), s.CaseID
 			}
 		}
-		if gatewayEvidence != "" {
-			return SourceReport{Name: "中转网关（上游未知）", Confidence: "medium", Evidence: []string{gatewayEvidence}}
+		switch hint := endpointSourceHint(endpoint); hint {
+		case "Microsoft Azure":
+			return newSource("Microsoft Azure（端点推断）", "medium", nil, gateway), lastCase
+		case "OpenAI 官方":
+			return newSource("OpenAI 官方（端点推断）", "medium", nil, gateway), lastCase
 		}
-		return out
+		for _, s := range samples {
+			if looksLikeOpenAIResponse(s.Body) {
+				return newSource("OpenAI 官方（未检测到 Azure 特征）", "low", nil, gateway), s.CaseID
+			}
+		}
+		if gateway != "" {
+			return newSource("OpenAI 兼容端点 / 中转（上游未知）", "low", []string{gateway}, gateway), gwCase
+		}
+		return newSource("未识别（自定义端点）", "low", nil, gateway), lastCase
 	}
 }
 
-func endpointConsistencyCheck(endpoint string, source SourceReport) CheckReport {
+func newSource(name, confidence string, evidence []string, gateway string) SourceReport {
+	return SourceReport{Name: name, Confidence: confidence, Evidence: evidence, Gateway: gateway}
+}
+
+// findHeader 返回第一个命中的响应头（key、value）及其来源用例。
+func findHeader(samples []sourceSample, keys ...string) (key, value, caseID string) {
+	for _, s := range samples {
+		if s.Header == nil {
+			continue
+		}
+		for _, k := range keys {
+			if v := strings.TrimSpace(s.Header.Get(k)); v != "" {
+				return k, v, s.CaseID
+			}
+		}
+	}
+	return "", "", ""
+}
+
+// findHeaderPrefix 按前缀匹配响应头，用于 anthropic-ratelimit-* 这类动态头。
+func findHeaderPrefix(samples []sourceSample, prefix string) (key, value, caseID string) {
+	prefix = strings.ToLower(prefix)
+	for _, s := range samples {
+		for k, vals := range s.Header {
+			if !strings.HasPrefix(strings.ToLower(k), prefix) || len(vals) == 0 {
+				continue
+			}
+			if v := strings.TrimSpace(vals[0]); v != "" {
+				return strings.ToLower(k), v, s.CaseID
+			}
+		}
+	}
+	return "", "", ""
+}
+
+// azureBodySignature 识别 Azure OpenAI Chat Completions 的内容过滤字段。
+// model-proof 使用的 content_filters / quota 属于 Responses API，这里同时
+// 兼容 Chat Completions 的 prompt_filter_results / content_filter_results。
+func azureBodySignature(m map[string]any) string {
+	if v := getSlice(m, "prompt_filter_results"); len(v) > 0 {
+		return "响应含 prompt_filter_results"
+	}
+	for _, c := range getSlice(m, "choices") {
+		cm, _ := c.(map[string]any)
+		if cm == nil {
+			continue
+		}
+		if getMap(cm, "content_filter_results") != nil {
+			return "choices[].content_filter_results"
+		}
+	}
+	if v, ok := m["content_filters"]; ok && v != nil {
+		return "响应含 content_filters"
+	}
+	if v, ok := m["quota"]; ok && v != nil {
+		return "响应含 quota"
+	}
+	return ""
+}
+
+// looksLikeOpenAIResponse 只用于“无 Azure 特征”时的低置信度回落判断。
+func looksLikeOpenAIResponse(body []byte) bool {
+	m := decodeObject(body)
+	if m == nil {
+		return false
+	}
+	switch getString(m, "object") {
+	case "chat.completion", "response":
+		return true
+	}
+	id := getString(m, "id")
+	if strings.HasPrefix(id, "chatcmpl-") || strings.HasPrefix(id, "resp_") || strings.HasPrefix(id, "cmpl-") {
+		return true
+	}
+	return getSlice(m, "choices") != nil || getSlice(m, "output") != nil
+}
+
+func endpointConsistencyCheck(endpoint string, source SourceReport, caseID string) CheckReport {
 	const id = "P2-2"
 	const name = "端点与响应来源一致"
 	hint := endpointSourceHint(endpoint)
 	if hint == "" {
 		return CheckReport{
 			ID: id, Group: GroupSource, Name: name, Status: StatusNA,
-			Weight: WeightSoft, Evidence: "自定义端点，无法仅凭 URL 判定来源",
+			Weight: WeightSoft, Evidence: "自定义端点，无法仅凭 URL 判定来源", CaseID: caseID,
 		}
 	}
 	if source.Confidence == "low" || source.Confidence == "unknown" {
 		return CheckReport{
 			ID: id, Group: GroupSource, Name: name, Status: StatusNA,
-			Weight: WeightSoft, Evidence: "端点指向 " + hint + "，但响应特征不足以确认",
+			Weight: WeightSoft, Evidence: "端点指向 " + hint + "，但响应特征不足以确认", CaseID: caseID,
 		}
 	}
-	if strings.Contains(source.Name, hint) || strings.Contains(hint, source.Name) {
+	if sourceNamesMatch(hint, source.Name) {
 		return CheckReport{
 			ID: id, Group: GroupSource, Name: name, Status: StatusPass,
-			Weight: WeightMetadata, Evidence: "端点与响应特征一致: " + hint,
+			Weight: WeightMetadata, Evidence: "端点与响应特征一致: " + hint, CaseID: caseID,
 		}
 	}
 	return CheckReport{
 		ID: id, Group: GroupSource, Name: name, Status: StatusFail,
-		Weight: WeightMetadata, Evidence: "端点指向 " + hint + "，响应特征指向 " + source.Name,
+		Weight: WeightMetadata, Evidence: "端点指向 " + hint + "，响应特征指向 " + source.Name, CaseID: caseID,
 	}
 }
 
-func gatewayCheck(h http.Header) CheckReport {
+func sourceNamesMatch(hint, detected string) bool {
+	if strings.Contains(detected, hint) || strings.Contains(hint, detected) {
+		return true
+	}
+	// Claude 经 Microsoft Foundry 时端点提示是 Microsoft Azure，响应头指向
+	// Microsoft Foundry，两者属于同一产品家族。
+	azureFoundry := func(a, b string) bool {
+		return (strings.Contains(a, "Azure") && strings.Contains(b, "Foundry")) ||
+			(strings.Contains(a, "Foundry") && strings.Contains(b, "Azure"))
+	}
+	return azureFoundry(hint, detected)
+}
+
+func gatewayCheck(h http.Header, gateway, caseID string) CheckReport {
 	const id = "P2-3"
 	const name = "未检测到网关改写特征"
-	if h == nil {
-		return CheckReport{ID: id, Group: GroupSource, Name: name, Status: StatusNA, Weight: WeightSoft, Evidence: "无响应头"}
+	if gateway != "" {
+		return CheckReport{
+			ID: id, Group: GroupSource, Name: name, Status: StatusWarn,
+			Weight: WeightSoft, Evidence: "检测到网关特征 " + gateway + "，上游平台可能被网关改写", CaseID: caseID,
+		}
 	}
-	for _, k := range []string{"X-Oneapi-Request-Id", "X-New-Api-Request-Id", "X-Api-Request-Id", "X-One-Api-Request-Id"} {
+	if h == nil {
+		return CheckReport{ID: id, Group: GroupSource, Name: name, Status: StatusNA, Weight: WeightSoft, Evidence: "无响应头", CaseID: caseID}
+	}
+	for _, k := range gatewayHeaderKeys {
 		if v := strings.TrimSpace(h.Get(k)); v != "" {
 			return CheckReport{
 				ID: id, Group: GroupSource, Name: name, Status: StatusWarn,
-				Weight: WeightSoft, Evidence: "检测到网关响应头 " + k + "=" + v + "，上游平台可能被网关改写",
+				Weight: WeightSoft, Evidence: "检测到网关响应头 " + k + "=" + v + "，上游平台可能被网关改写", CaseID: caseID,
 			}
 		}
 	}
 	return CheckReport{
 		ID: id, Group: GroupSource, Name: name, Status: StatusPass,
-		Weight: WeightSoft, Evidence: "未检测到常见中转网关响应头",
+		Weight: WeightSoft, Evidence: "未检测到常见中转网关响应头", CaseID: caseID,
 	}
 }
 
@@ -406,24 +544,24 @@ func (r *modelRun) runIdentity() {
 		}
 		r.add(CheckReport{
 			ID: "P4-1", Group: GroupIdentity, Name: "响应 model 与请求模型一致",
-			Status: status, Weight: WeightMetadata,
+			Status: status, Weight: WeightMetadata, CaseID: r.lastCaseID,
 			Evidence: fmt.Sprintf("请求 model=%q，实际 model=%q", r.job.model, r.lastModel),
 		})
 	} else {
 		r.add(CheckReport{
 			ID: "P4-1", Group: GroupIdentity, Name: "响应 model 与请求模型一致",
-			Status: StatusNA, Weight: WeightMetadata, Evidence: "响应未返回 model 字段",
+			Status: StatusNA, Weight: WeightMetadata, Evidence: "响应未返回 model 字段", CaseID: r.lastCaseID,
 		})
 	}
 
-	r.add(responseIDCheck(r.protocolName, r.lastID))
-	r.add(r.featureGateCheck())
+	r.add(responseIDCheck(r.protocolName, r.lastID, r.lastCaseID))
+	r.add(r.featureGateCheck(r.lastCaseID))
 }
 
-func responseIDCheck(proto model.Protocol, id string) CheckReport {
+func responseIDCheck(proto model.Protocol, id, caseID string) CheckReport {
 	const name = "响应 ID 格式符合模型家族"
 	if strings.TrimSpace(id) == "" {
-		return CheckReport{ID: "P4-2", Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "响应未返回 ID"}
+		return CheckReport{ID: "P4-2", Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "响应未返回 ID", CaseID: caseID}
 	}
 	ok := true
 	switch proto {
@@ -440,39 +578,39 @@ func responseIDCheck(proto model.Protocol, id string) CheckReport {
 	}
 	return CheckReport{
 		ID: "P4-2", Group: GroupIdentity, Name: name,
-		Status: status, Weight: WeightMetadata, Evidence: "id=" + truncateText(id, 120),
+		Status: status, Weight: WeightMetadata, Evidence: "id=" + truncateText(id, 120), CaseID: caseID,
 	}
 }
 
-func (r *modelRun) featureGateCheck() CheckReport {
+func (r *modelRun) featureGateCheck(caseID string) CheckReport {
 	const id = "P4-3"
 	const name = "声称模型的关键特征存在"
 	switch r.protocolName {
 	case model.ProtocolClaude:
 		claimed := claudeAdaptive(r.job.model) || !strings.HasPrefix(normalizeModel(r.job.model), "claude-3")
 		if !claimed {
-			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "Claude 3.x 未声称 thinking"}
+			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "Claude 3.x 未声称 thinking", CaseID: caseID}
 		}
 		if len(r.lastSignatures) > 0 {
-			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusPass, Weight: WeightMetadata, Evidence: fmt.Sprintf("thinking 签名 %d 个", len(r.lastSignatures))}
+			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusPass, Weight: WeightMetadata, Evidence: fmt.Sprintf("thinking 签名 %d 个", len(r.lastSignatures)), CaseID: caseID}
 		}
-		return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusWarn, Weight: WeightMetadata, Evidence: "未观察到 thinking 签名；可能是网关剥离或模型不支持"}
+		return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusWarn, Weight: WeightMetadata, Evidence: "未观察到 thinking 签名；可能是网关剥离或模型不支持", CaseID: caseID}
 	case model.ProtocolGemini:
 		if geminiMajor(r.job.model) == 0 || geminiMajor(r.job.model) < 2 {
-			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "未声称 thinking"}
+			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "未声称 thinking", CaseID: caseID}
 		}
 		if r.lastUsage.Reasoning > 0 || r.lastThoughtParts > 0 || len(r.lastThoughtSigs) > 0 {
-			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusPass, Weight: WeightMetadata, Evidence: fmt.Sprintf("thoughtsTokenCount=%d thoughtParts=%d signatures=%d", r.lastUsage.Reasoning, r.lastThoughtParts, len(r.lastThoughtSigs))}
+			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusPass, Weight: WeightMetadata, Evidence: fmt.Sprintf("thoughtsTokenCount=%d thoughtParts=%d signatures=%d", r.lastUsage.Reasoning, r.lastThoughtParts, len(r.lastThoughtSigs)), CaseID: caseID}
 		}
-		return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusWarn, Weight: WeightMetadata, Evidence: "未观察到 thinking 内容；可能是网关剥离或模型降级"}
+		return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusWarn, Weight: WeightMetadata, Evidence: "未观察到 thinking 内容；可能是网关剥离或模型降级", CaseID: caseID}
 	default:
 		if !isOpenAIReasoningName(r.job.model) {
-			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "当前模型未声称 reasoning"}
+			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusNA, Weight: WeightMetadata, Evidence: "当前模型未声称 reasoning", CaseID: caseID}
 		}
 		if r.lastUsage.Reasoning > 0 || strings.TrimSpace(r.lastReason) != "" {
-			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusPass, Weight: WeightMetadata, Evidence: fmt.Sprintf("reasoning_tokens=%d", r.lastUsage.Reasoning)}
+			return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusPass, Weight: WeightMetadata, Evidence: fmt.Sprintf("reasoning_tokens=%d", r.lastUsage.Reasoning), CaseID: caseID}
 		}
-		return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusWarn, Weight: WeightMetadata, Evidence: "未观察到 reasoning tokens；可能是网关剥离或模型降级"}
+		return CheckReport{ID: id, Group: GroupIdentity, Name: name, Status: StatusWarn, Weight: WeightMetadata, Evidence: "未观察到 reasoning tokens；可能是网关剥离或模型降级", CaseID: caseID}
 	}
 }
 
@@ -484,7 +622,7 @@ func (r *modelRun) runConsistency() {
 	if !u.Reported {
 		r.add(CheckReport{
 			ID: "P5-1", Group: GroupConsistency, Name: "usage 数学一致",
-			Status: StatusNA, Weight: WeightMetadata, Evidence: "响应未上报 usage",
+			Status: StatusNA, Weight: WeightMetadata, Evidence: "响应未上报 usage", CaseID: r.lastCaseID,
 		})
 	} else {
 		status := StatusPass
@@ -539,14 +677,14 @@ func (r *modelRun) runTokenizer() {
 	if !r.lastUsage.Reported || r.lastUsage.Prompt <= 0 {
 		r.add(CheckReport{
 			ID: "P5-3", Group: GroupConsistency, Name: "本地分词器与 usage 偏差",
-			Status: StatusNA, Weight: WeightMetadata, Evidence: "上游未上报输入 Token",
+			Status: StatusNA, Weight: WeightMetadata, Evidence: "上游未上报输入 Token", CaseID: r.lastCaseID,
 		})
 		return
 	}
 	if len(r.lastMessages) == 0 {
 		r.add(CheckReport{
 			ID: "P5-3", Group: GroupConsistency, Name: "本地分词器与 usage 偏差",
-			Status: StatusNA, Weight: WeightMetadata, Evidence: "没有可用于本地计数的消息",
+			Status: StatusNA, Weight: WeightMetadata, Evidence: "没有可用于本地计数的消息", CaseID: r.lastCaseID,
 		})
 		return
 	}
@@ -554,7 +692,7 @@ func (r *modelRun) runTokenizer() {
 	if counted.Tokens <= 0 {
 		r.add(CheckReport{
 			ID: "P5-3", Group: GroupConsistency, Name: "本地分词器与 usage 偏差",
-			Status: StatusNA, Weight: WeightMetadata, Evidence: "本地分词器没有返回有效计数",
+			Status: StatusNA, Weight: WeightMetadata, Evidence: "本地分词器没有返回有效计数", CaseID: r.lastCaseID,
 		})
 		return
 	}
@@ -565,7 +703,7 @@ func (r *modelRun) runTokenizer() {
 	}
 	r.add(CheckReport{
 		ID: "P5-3", Group: GroupConsistency, Name: "本地分词器与 usage 偏差",
-		Status: status, Weight: WeightMetadata,
+		Status: status, Weight: WeightMetadata, CaseID: r.lastCaseID,
 		Evidence: fmt.Sprintf("local=%d upstream=%d deviation=%.1f%% source=%s（工具 schema 等未计入本地，偏差仅供参考）",
 			counted.Tokens, r.lastUsage.Prompt, dev, counted.Source),
 	})

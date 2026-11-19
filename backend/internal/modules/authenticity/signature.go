@@ -58,7 +58,8 @@ func (r *modelRun) runGeminiSignature() {
 	if !funcOK || strings.TrimSpace(sig) == "" {
 		r.add(CheckReport{
 			ID: "SG6", Group: GroupSignature, Name: "伪造 thoughtSignature 应被上游拒绝",
-			Status: StatusNA, Weight: WeightHard, Evidence: "未拿到真实 signature，无法执行伪造回放",
+			Status: StatusNA, Weight: WeightHard, CaseID: "sig.gemini.turn1",
+			Evidence: "未拿到真实 signature，无法执行伪造回放",
 		})
 		return
 	}

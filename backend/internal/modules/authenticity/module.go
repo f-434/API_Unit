@@ -368,6 +368,7 @@ func notes(cfg *Config) []string {
 		"N/A 表示目标或模型不支持该探针，不参与通过率，也不等于造假。",
 		"官方指纹文案需要与目标 API 版本标定；不匹配只表示“未确认官方”，不会单独判为仿冒。",
 		"本地 nonce 挑战每次运行随机生成，可防止固定答案回放；同家族同能力的模型降级无法仅靠黑盒完全识别。",
+		"响应来源按上游特征推断：Claude 只看响应头；Gemini / OpenAI 在没有明确上游特征时按 model-proof 口径回落为 AI Studio / OpenAI 官方，置信度为低。X-Oneapi 等中转特征单独展示，不代表来源本身。",
 	}
 	if cfg.Repetitions > 1 {
 		out = append(out, fmt.Sprintf("每个模型完整重复 %d 轮；结论按各轮综合（任一仿冒即仿冒，出现可疑则可疑，全部通过才通过）。", cfg.Repetitions))

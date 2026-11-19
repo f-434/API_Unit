@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Alert, Button, Descriptions, Input, Modal, Progress, Space, Table, Tag, Tooltip, message,
+  Alert, Button, Descriptions, Input, Modal, Progress, Space, Spin, Table, Tabs, Tag, Tooltip, message,
 } from 'antd'
-import { EyeOutlined, FileAddOutlined } from '@ant-design/icons'
+import { CodeOutlined, EyeOutlined, FileAddOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import type {
   AuthenticityCheck, AuthenticityLiveModel, AuthenticityModelReport, AuthenticityReport, Live,
@@ -143,38 +143,120 @@ function groupChecks(checks: AuthenticityCheck[]) {
 }
 
 function CheckRow({
-  check, onOpen, onTemplate,
+  check, runId, model, onOpen, onTemplate,
 }: {
   check: AuthenticityCheck
+  runId: string
+  model: string
   onOpen?: (c: AuthenticityCheck) => void
   onTemplate?: (c: AuthenticityCheck) => void
 }) {
   const canTemplate = check.id.startsWith('P5-') || (check.caseId || '').startsWith('fp.')
+  const [expanded, setExpanded] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [detail, setDetail] = useState<{ item?: any; error?: string } | null>(null)
+
+  // 按 caseId 找回产生该检查证据的 item，再取完整正文。列表接口不返回
+  // 请求/响应体，所以这里先定位 id，再调用单条详情接口。
+  const load = async () => {
+    if (!check.caseId) return
+    setLoading(true)
+    try {
+      const res = await api.items(runId, { model, caseId: check.caseId, limit: 50 })
+      const hit = (res.items || []).find((it: any) => !check.repetition || it.repetition === check.repetition) || res.items?.[0]
+      if (!hit) {
+        setDetail({ error: '未找到对应请求正文（可能已被保留策略清理）' })
+        return
+      }
+      const d = await api.item(runId, hit.id)
+      setDetail({ item: d.item })
+    } catch (e: any) {
+      setDetail({ error: e?.message || '读取请求正文失败' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggle = () => {
+    const next = !expanded
+    setExpanded(next)
+    if (next && !detail && !loading) load()
+  }
+
   return (
-    <div className={`auth-check-row is-${check.status}`}>
-      <Tag color={statusColor[check.status] || 'default'} style={{ marginTop: 1 }}>
-        {statusLabel[check.status] || check.status}
-      </Tag>
-      <div className="auth-check-main">
-        <div className="auth-check-name">{check.name}</div>
-        <div className="auth-check-meta">
-          <span>ID {check.id}</span>
-          <span>证据 {weightLabel[check.weight] || check.weight}</span>
-          {!!check.repetition && <span>第 {check.repetition} 次</span>}
-          {!!check.durationMs && <span>{check.durationMs} ms</span>}
+    <div className={`auth-check-item is-${check.status}`}>
+      <div className={`auth-check-row is-${check.status}`}>
+        <Tag color={statusColor[check.status] || 'default'} style={{ marginTop: 1 }}>
+          {statusLabel[check.status] || check.status}
+        </Tag>
+        <div className="auth-check-main">
+          <div className="auth-check-name">{check.name}</div>
+          <div className="auth-check-meta">
+            <span>ID {check.id}</span>
+            <span>证据 {weightLabel[check.weight] || check.weight}</span>
+            {!!check.repetition && <span>第 {check.repetition} 次</span>}
+            {!!check.durationMs && <span>{check.durationMs} ms</span>}
+          </div>
+          {check.evidence && <div className="auth-check-evidence">{check.evidence}</div>}
         </div>
-        {check.evidence && <div className="auth-check-evidence">{check.evidence}</div>}
+        <div className="auth-check-actions">
+          {check.caseId && (
+            <Button size="small" type="link" icon={<CodeOutlined />} onClick={toggle}>
+              {expanded ? '收起' : '请求/响应'}
+            </Button>
+          )}
+          {canTemplate && onTemplate && (
+            <Tooltip title="用这条请求/响应生成模板草稿；审核并发布后才会生效">
+              <Button size="small" type="link" icon={<FileAddOutlined />} onClick={() => onTemplate(check)}>用例</Button>
+            </Tooltip>
+          )}
+        </div>
       </div>
-      <div className="auth-check-actions">
-        {check.caseId && onOpen && (
-          <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => onOpen(check)}>正文</Button>
-        )}
-        {canTemplate && onTemplate && (
-          <Tooltip title="用这条请求/响应生成模板草稿；审核并发布后才会生效">
-            <Button size="small" type="link" icon={<FileAddOutlined />} onClick={() => onTemplate(check)}>用例</Button>
-          </Tooltip>
-        )}
-      </div>
+      {expanded && (
+        <div className="auth-check-expanded">
+          {loading ? (
+            <div style={{ padding: 8 }}><Spin size="small" /> <span className="muted">读取请求/响应…</span></div>
+          ) : detail?.error ? (
+            <Alert type="warning" showIcon message={detail.error} />
+          ) : detail?.item ? (
+            <>
+              <Descriptions size="small" column={3} style={{ marginBottom: 8 }}>
+                <Descriptions.Item label="用例">{detail.item.caseName || check.caseId}</Descriptions.Item>
+                <Descriptions.Item label="HTTP / 状态">{detail.item.status || '-'}</Descriptions.Item>
+                <Descriptions.Item label="请求 ID"><span className="small-mono">{detail.item.requestId || '-'}</span></Descriptions.Item>
+              </Descriptions>
+              <Tabs
+                size="small"
+                items={[
+                  {
+                    key: 'req', label: '请求体',
+                    children: detail.item.requestJson
+                      ? <JsonBlock value={detail.item.requestJson} maxHeight={240} />
+                      : <Alert type="info" showIcon message="该次请求没有保存请求体" />,
+                  },
+                  {
+                    key: 'resp', label: '响应体',
+                    children: detail.item.responseJson
+                      ? <JsonBlock value={detail.item.responseJson} maxHeight={300} />
+                      : <Alert type="info" showIcon message="该次请求没有保存响应体" />,
+                  },
+                  {
+                    key: 'headers', label: '响应头',
+                    children: Object.keys(detail.item.meta?.responseHeaders || {}).length
+                      ? <JsonBlock value={detail.item.meta.responseHeaders} maxHeight={240} />
+                      : <Alert type="info" showIcon message="该次请求没有保存响应头（旧数据或请求失败）" />,
+                  },
+                ]}
+              />
+              {onOpen && (
+                <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => onOpen(check)}>打开完整详情</Button>
+              )}
+            </>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>暂无关联的请求/响应</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -333,7 +415,9 @@ export default function AuthenticityReportView({
                   {groupChecks(m.checks || []).map(g => (
                     <div className="auth-check-group" key={g.name}>
                       <div className="auth-check-group-title">{g.name}<span className="count">{g.checks.length} 项</span></div>
-                      {g.checks.map((c, i) => <CheckRow key={c.id + c.name + i} check={c} />)}
+                      {g.checks.map((c, i) => (
+                        <CheckRow key={c.id + c.name + i} check={c} runId={runId} model={m.model} />
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -415,7 +499,7 @@ export default function AuthenticityReportView({
         showIcon
         style={{ marginBottom: 12 }}
         message="列表按「模型 × 测试轮次」展示；点击行展开逐条检查结果。"
-        description="通过率 = 通过 /（通过 + 失败），N/A 不计入分母。展开后按接口指纹、响应来源、工具调用情况、模型身份、数据一致性分组，逐条显示证据与失败原因。"
+        description="通过率 = 通过 /（通过 + 失败），N/A 不计入分母。展开后按接口指纹、响应来源、工具调用情况、模型身份、数据一致性分组，逐条显示证据与失败原因；点击检查行的「请求/响应」可展开该次请求的原始请求体、响应体和响应头。"
       />
 
       <Space style={{ marginBottom: 10 }}>
@@ -436,7 +520,19 @@ export default function AuthenticityReportView({
             <div style={{ padding: '6px 0 12px' }}>
               {row.error && <Alert type="error" showIcon style={{ marginBottom: 10 }} message="执行错误" description={row.error} />}
               <Descriptions size="small" column={3} style={{ marginBottom: 8 }}>
-                <Descriptions.Item label="来源">{row.source?.name || '-'} / {row.source?.confidence || '-'}</Descriptions.Item>
+                <Descriptions.Item label="来源">
+                  <Space size={4} wrap>
+                    <span>{row.source?.name || '-'}</span>
+                    <span className="muted">{row.source?.confidence || '-'}</span>
+                    {row.source?.gateway && <Tag color="gold">经中转</Tag>}
+                  </Space>
+                  {!!row.source?.evidence?.length && (
+                    <div className="small-mono muted" style={{ marginTop: 2 }}>{row.source.evidence.join('；')}</div>
+                  )}
+                  {row.source?.gateway && (
+                    <div className="small-mono muted" style={{ marginTop: 2 }}>网关特征：{row.source.gateway}</div>
+                  )}
+                </Descriptions.Item>
                 <Descriptions.Item label="端点" span={2}><span className="small-mono">{row.modelReport.endpoint || '-'}</span></Descriptions.Item>
               </Descriptions>
               {groupChecks(row.checks).map(g => (
@@ -446,6 +542,8 @@ export default function AuthenticityReportView({
                     <CheckRow
                       key={c.id + c.name + (c.repetition || 0) + i}
                       check={c}
+                      runId={runId}
+                      model={row.model}
                       onOpen={cc => openCheck(row.modelReport, cc)}
                       onTemplate={cc => openTemplateModal(row.modelReport, cc)}
                     />
@@ -464,15 +562,24 @@ export default function AuthenticityReportView({
             render: (_: any, r: ExecRow) => <Tag>第 {r.repetition}/{r.totalReps} 次</Tag>,
           },
           {
-            title: '来源', width: 210,
-            render: (_: any, r: ExecRow) => (
-              <Space size={4}>
-                <Tag color={r.source?.confidence === 'high' ? 'green' : r.source?.confidence === 'medium' ? 'blue' : 'gold'}>
-                  {r.source?.name || '未识别'}
-                </Tag>
-                <span className="muted" style={{ fontSize: 12 }}>{r.source?.confidence || 'unknown'}</span>
-              </Space>
-            ),
+            title: '来源', width: 230,
+            render: (_: any, r: ExecRow) => {
+              const detail = [
+                ...(r.source?.evidence || []),
+                r.source?.gateway ? `网关特征：${r.source.gateway}` : '',
+              ].filter(Boolean).join('；')
+              return (
+                <Tooltip title={detail || '未识别到可用的来源特征'}>
+                  <Space size={4} wrap>
+                    <Tag color={r.source?.confidence === 'high' ? 'green' : r.source?.confidence === 'medium' ? 'blue' : 'gold'}>
+                      {r.source?.name || '未识别'}
+                    </Tag>
+                    <span className="muted" style={{ fontSize: 12 }}>{r.source?.confidence || 'unknown'}</span>
+                    {r.source?.gateway && <Tag color="gold">经中转</Tag>}
+                  </Space>
+                </Tooltip>
+              )
+            },
           },
           {
             title: '结论', dataIndex: 'verdict', width: 100,
