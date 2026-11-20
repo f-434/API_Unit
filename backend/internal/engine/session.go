@@ -103,6 +103,12 @@ type Session struct {
 	limiter   *rate.Limiter
 	limiterMu sync.Mutex
 
+	// samplingDrops 按“目标 + 模型”缓存本次运行中已确认不支持的采样参数
+	// （例如新版 Claude 模型已废弃 temperature），后续请求直接省略，
+	// 避免每次都先收到 400 再更正。
+	samplingMu    sync.Mutex
+	samplingDrops map[string]map[string]bool
+
 	prices     []model.Price
 	persistErr atomic.Value
 	moduleRes  atomic.Value
@@ -111,20 +117,21 @@ type Session struct {
 func NewSession(runID string, kind model.RunKind, st *store.Store, client *protocol.Client, counter *tokens.Counter, prices []model.Price) *Session {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &Session{
-		RunID:      runID,
-		Kind:       kind,
-		store:      st,
-		client:     client,
-		counter:    counter,
-		ctx:        ctx,
-		cancel:     cancel,
-		started:    time.Now(),
-		live:       newLiveState(runID, string(kind)),
-		hub:        newHub(),
-		itemCh:     make(chan model.Item, itemChannelCap),
-		writerDone: make(chan struct{}),
-		pumpStop:   make(chan struct{}),
-		prices:     prices,
+		RunID:         runID,
+		Kind:          kind,
+		store:         st,
+		client:        client,
+		counter:       counter,
+		ctx:           ctx,
+		cancel:        cancel,
+		started:       time.Now(),
+		live:          newLiveState(runID, string(kind)),
+		hub:           newHub(),
+		itemCh:        make(chan model.Item, itemChannelCap),
+		writerDone:    make(chan struct{}),
+		pumpStop:      make(chan struct{}),
+		prices:        prices,
+		samplingDrops: map[string]map[string]bool{},
 	}
 	s.itemsOpen.Store(true)
 	return s
@@ -428,6 +435,10 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 	if target.Protocol == "" {
 		target.Protocol = req.Protocol
 	}
+	// 同一运行内按“目标 + 模型”复用采样参数兼容性结论，直接省略已知
+	// 不被支持的参数，避免每个请求都先失败一次再更正。
+	capKey := samplingCacheKey(target.ID, req.Model)
+	droppedParams := s.applyKnownSamplingDrops(capKey, &chatReq)
 
 	s.inflight.Add(1)
 	defer s.inflight.Add(-1)
@@ -446,6 +457,26 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 		attemptStart = time.Now()
 		out, lastErr = s.client.Do(actx, target, chatReq)
 		cancel()
+		// 采样参数兼容性动态更正：上游明确拒绝 temperature / top_p / top_k
+		// 时（例如新版 Claude 返回 400 “`temperature` is deprecated for this
+		// model.”），移除对应参数后立即重试。这类更正不占用用户配置的
+		// 失败重试次数；每轮至少移除一个参数，因此循环必然收敛。
+		for lastErr == nil && out != nil && !out.OK {
+			removed := protocol.StripSamplingParams(&chatReq, protocol.RejectedSamplingParams(out))
+			if len(removed) == 0 {
+				break
+			}
+			s.rememberSamplingDrops(capKey, removed)
+			droppedParams = append(droppedParams, removed...)
+			if err := s.waitLimit(ctx); err != nil {
+				lastErr = err
+				break
+			}
+			actx, cancel := context.WithTimeout(ctx, timeout)
+			attemptStart = time.Now()
+			out, lastErr = s.client.Do(actx, target, chatReq)
+			cancel()
+		}
 		if lastErr == nil && out != nil && out.OK {
 			break
 		}
@@ -612,6 +643,10 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 		it.Meta = map[string]any{}
 	}
 	it.Meta["attempts"] = attempts
+	if len(droppedParams) > 0 {
+		// 记录本次请求为了让上游接受而省略的采样参数，便于在运行详情里核对。
+		it.Meta["droppedParams"] = dedupeStrings(droppedParams)
+	}
 	it.Meta["localPromptTokens"] = localTokens
 	if localSource != "" {
 		it.Meta["localSource"] = localSource
@@ -736,6 +771,62 @@ func wildcardMatch(pattern, s string) bool {
 	}
 	tail := parts[len(parts)-1]
 	return strings.HasSuffix(s, tail)
+}
+
+// samplingCacheKey 以“目标 + 模型”为键缓存采样参数兼容性，模型名统一小写，
+// 避免大小写差异导致缓存不命中。
+func samplingCacheKey(targetID, modelName string) string {
+	return targetID + "\x00" + strings.ToLower(strings.TrimSpace(modelName))
+}
+
+// applyKnownSamplingDrops 在发送前移除本次运行中已确认不支持的采样参数，
+// 返回实际移除的参数名。
+func (s *Session) applyKnownSamplingDrops(key string, req *protocol.ChatRequest) []string {
+	s.samplingMu.Lock()
+	drops := s.samplingDrops[key]
+	s.samplingMu.Unlock()
+	if len(drops) == 0 {
+		return nil
+	}
+	params := make([]string, 0, len(drops))
+	for p := range drops {
+		params = append(params, p)
+	}
+	return protocol.StripSamplingParams(req, params)
+}
+
+// rememberSamplingDrops 记住上游拒绝的采样参数，供同一运行内的后续请求复用。
+func (s *Session) rememberSamplingDrops(key string, params []string) {
+	if len(params) == 0 {
+		return
+	}
+	s.samplingMu.Lock()
+	defer s.samplingMu.Unlock()
+	set := s.samplingDrops[key]
+	if set == nil {
+		set = map[string]bool{}
+		s.samplingDrops[key] = set
+	}
+	for _, p := range params {
+		set[p] = true
+	}
+}
+
+// dedupeStrings 按出现顺序去重。
+func dedupeStrings(in []string) []string {
+	if len(in) < 2 {
+		return in
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 func shouldRetry(out *protocol.Outcome, err error, p RetryPolicy, ctx context.Context) bool {

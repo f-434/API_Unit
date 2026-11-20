@@ -212,13 +212,20 @@ func (j *Judge) Evaluate(ctx context.Context, a model.Attack, response string) (
 	cctx, cancel := context.WithTimeout(ctx, j.timeout)
 	defer cancel()
 	zero := 0.0
-	out, err := j.client.Do(cctx, j.target, protocol.ChatRequest{
+	judgeReq := protocol.ChatRequest{
 		Model:       j.model,
 		Messages:    []protocol.ChatMessage{{Role: "system", Content: judgeSystem}, {Role: "user", Content: user}},
 		MaxTokens:   j.maxTokens,
 		Temperature: &zero,
 		Stream:      false,
-	})
+	}
+	out, err := j.client.Do(cctx, j.target, judgeReq)
+	// 部分新模型已移除 temperature，被明确拒绝时去掉该参数重试一次。
+	if err == nil && out != nil && !out.OK {
+		if removed := protocol.StripSamplingParams(&judgeReq, protocol.RejectedSamplingParams(out)); len(removed) > 0 {
+			out, err = j.client.Do(cctx, j.target, judgeReq)
+		}
+	}
 	if err != nil {
 		return &model.JudgeVerdict{Method: "llm", Verdict: "error", Reason: "裁判请求失败: " + err.Error(), Model: j.model}, 0, 0, ""
 	}
