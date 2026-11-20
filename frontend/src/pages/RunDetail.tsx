@@ -8,7 +8,9 @@ import {
   ArrowLeftOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, StopOutlined,
 } from '@ant-design/icons'
 import { api, subscribeRun } from '../api'
-import type { AuditReport, AuthenticityReport, InjectionReport, Live, RequestDiffReport } from '../types'
+import type {
+  AuditReport, AuthenticityReport, ImageDetectionReport, InjectionReport, Live, RequestDiffReport,
+} from '../types'
 import {
   kindLabel, kindColor, fmtInt, fmtPct, fmtDuration, fmtTime, fmtCost,
   auditCellStats, statusLabel,
@@ -19,6 +21,7 @@ import StressReportView from '../components/StressReportView'
 import AuditReportView from '../components/AuditReportView'
 import InjectionReportView from '../components/InjectionReportView'
 import AuthenticityReportView from '../components/AuthenticityReportView'
+import ImageDetectionReportView from '../components/ImageDetectionReportView'
 import RunItems from '../components/RunItems'
 import { DiffPanel, FindingsTable, SnapshotTable } from '../components/RequestDiffTabs'
 import { stressPlan } from '../progress'
@@ -191,10 +194,23 @@ export default function RunDetail() {
     : undefined
   const authSummary = authReport?.summary
   const authTests = (authReport?.models || []).reduce((n, m) => n + (m.repetitions || 1), 0)
+  const imageReport = kind === 'image_detection'
+    ? (reportData as ImageDetectionReport | undefined)
+    : undefined
+  const imageSummary = imageReport?.summary
   const headerKpis = (
     <div className="kpi-grid" style={{ marginBottom: 14 }}>
       <Kpi label="状态" value={<StatusTag status={status} />} />
-      {authSummary ? (
+      {imageSummary ? (
+        <>
+          <Kpi label="模型数" value={fmtInt(imageSummary.models)} />
+          <Kpi label="测试项" value={fmtInt(imageSummary.phases)} />
+          <Kpi label="通过 / 失败 / N/A" value={`${imageSummary.passed} / ${imageSummary.failed} / ${imageSummary.na}`} />
+          <Kpi label="C2PA 检出" value={fmtInt(imageSummary.c2paDetected)} color={imageSummary.c2paDetected ? '#16a34a' : undefined} />
+          <Kpi label="SynthID 检出" value={fmtInt(imageSummary.synthIdDetected)} color={imageSummary.synthIdDetected ? '#0891b2' : undefined} />
+          <Kpi label="在线验签" value={fmtInt(imageSummary.onlineChecked)} />
+        </>
+      ) : authSummary ? (
         <>
           <Kpi label="模型数" value={fmtInt(authSummary.models)} />
           <Kpi label="测试次数" value={fmtInt(authTests)} />
@@ -296,6 +312,16 @@ export default function RunDetail() {
         key: 'overview', label: '检测结果',
         children: <AuthenticityReportView report={reportData as AuthenticityReport | undefined} runId={id} live={live} />,
       },
+      { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
+      { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
+    ]
+  } else if (kind === 'image_detection') {
+    tabs = [
+      {
+        key: 'overview', label: '检测结果',
+        children: <ImageDetectionReportView report={imageReport} runId={id} live={live} />,
+      },
+      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
     ]

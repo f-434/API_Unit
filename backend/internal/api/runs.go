@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"apiunit/internal/model"
+	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/store"
 )
 
@@ -230,6 +231,8 @@ func (s *Server) handleRunDelete(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// 生图检测的图片不存 SQLite，删除测试记录时一并清理。
+	_ = imagedetection.RemoveRunImages(imagedetection.ImageDir(s.cfg.DataDir), id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

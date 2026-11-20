@@ -23,6 +23,7 @@ import {
   ThunderboltOutlined,
   DollarOutlined,
   DiffOutlined,
+  PictureOutlined,
 } from "@ant-design/icons";
 import { api } from "./api";
 import Login from "./pages/Login";
@@ -38,6 +39,7 @@ import RequestDiffNew from "./pages/RequestDiffNew";
 import InjectionNew from "./pages/InjectionNew";
 import AuthenticityNew from "./pages/AuthenticityNew";
 import AuthenticityTemplates from "./pages/AuthenticityTemplates";
+import ImageDetectionNew from "./pages/ImageDetectionNew";
 import History from "./pages/History";
 import RunDetail from "./pages/RunDetail";
 import QuickActionsFab, { type QuickAction } from "./components/QuickActionsFab";
@@ -53,6 +55,7 @@ const menuItems = [
   { key: "/injection/new", icon: <BugOutlined />, label: "提示词注入" },
   { key: "/authenticity/new", icon: <SafetyCertificateOutlined />, label: "模型真实性" },
   { key: "/authenticity/templates", icon: <FileSearchOutlined />, label: "真实性用例" },
+  { key: "/image-detection/new", icon: <PictureOutlined />, label: "生图检测" },
   { key: "/runs", icon: <HistoryOutlined />, label: "测试历史" },
   { type: "divider" as const },
   { key: "/targets", icon: <CloudServerOutlined />, label: "上游 / 供应商" },
@@ -114,6 +117,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     if (p.startsWith("/injection")) return ["/injection/new"];
     if (p.startsWith("/authenticity/templates")) return ["/authenticity/templates"];
     if (p.startsWith("/authenticity")) return ["/authenticity/new"];
+    if (p.startsWith("/image-detection")) return ["/image-detection/new"];
     if (p.startsWith("/stress")) return ["/stress/new"];
     return [];
   }, [location.pathname]);
@@ -217,6 +221,7 @@ export default function App() {
                 <Route path="/injection/new" element={<InjectionNew />} />
                 <Route path="/authenticity/new" element={<AuthenticityNew />} />
                 <Route path="/authenticity/templates" element={<AuthenticityTemplates />} />
+                <Route path="/image-detection/new" element={<ImageDetectionNew />} />
                 <Route path="/runs" element={<History />} />
                 <Route path="/runs/:id" element={<RunDetail />} />
                 <Route path="/targets" element={<Targets />} />

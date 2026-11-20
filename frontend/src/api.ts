@@ -1,6 +1,6 @@
 import type {
-  Attack, DiffResponse, Item, ItemDetail, Kind, Live, Meta, Paged, Price, Prompt,
-  Run, RunRow, RunView, Snapshot, SnapshotDetail, Target, TokenizerStatus,
+  Attack, DiffResponse, ImageDetectionConfigResponse, Item, ItemDetail, Kind, Live, Meta,
+  Paged, Price, Prompt, Run, RunRow, RunView, Snapshot, SnapshotDetail, Target, TokenizerStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -91,6 +91,10 @@ export const api = {
   createAuthenticityTemplate: (body: any) => post<{ item: any }>('/api/authenticity/templates', body),
   publishAuthenticityTemplate: (id: string) => post<{ ok: boolean }>(`/api/authenticity/templates/${id}/publish`),
   archiveAuthenticityTemplate: (id: string) => post<{ ok: boolean }>(`/api/authenticity/templates/${id}/archive`),
+
+  imageDetectionConfig: () => get<ImageDetectionConfigResponse>('/api/image-detection/config'),
+  saveImageDetectionConfig: (body: { baseUrl?: string; apiKey?: string; clearKey?: boolean }) =>
+    post<ImageDetectionConfigResponse>('/api/image-detection/config', body),
 
   createRun: (kind: Kind, config: any) => post<{ id: string; run: Run }>('/api/runs', { kind, config }),
   runs: (params: { kind?: string; status?: string; limit?: number; offset?: number } = {}) => {

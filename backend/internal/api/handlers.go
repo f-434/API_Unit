@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"apiunit/internal/model"
+	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/modules/modcommon"
 	"apiunit/internal/protocol"
 	"apiunit/internal/seed"
@@ -749,5 +750,6 @@ func (s *Server) handlePurge(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	_, _ = imagedetection.PurgeImages(imagedetection.ImageDir(s.cfg.DataDir), cutoff)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": n})
 }

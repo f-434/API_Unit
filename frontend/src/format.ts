@@ -63,6 +63,7 @@ export const kindLabel = (k?: string) => {
     case 'request_diff': return '请求差异审计'
     case 'injection': return '提示词注入'
     case 'authenticity': return '模型真实性'
+    case 'image_detection': return '生图检测'
     default: return k || '-'
   }
 }
@@ -74,6 +75,7 @@ export const kindColor = (k?: string) => {
     case 'request_diff': return 'purple'
     case 'injection': return 'red'
     case 'authenticity': return 'cyan'
+    case 'image_detection': return 'magenta'
     default: return 'default'
   }
 }
@@ -111,6 +113,9 @@ export const verdictLabel = (v?: string) => {
     case 'unstable': return '波动异常'
     case 'no_usage': return '缺少 usage'
     case 'warning': return '需关注'
+    case 'pass': return '通过'
+    case 'fail': return '失败'
+    case 'warn': return '警告'
     default: return v || '-'
   }
 }
@@ -125,6 +130,9 @@ export const verdictColor = (v?: string) => {
     case 'unstable': return 'warning'
     case 'no_usage': return 'warning'
     case 'warning': return 'warning'
+    case 'pass': return 'success'
+    case 'fail': return 'error'
+    case 'warn': return 'warning'
     default: return 'default'
   }
 }

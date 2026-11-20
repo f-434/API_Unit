@@ -14,6 +14,7 @@ import (
 
 	"apiunit/internal/model"
 	"apiunit/internal/modules/authenticity"
+	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/tokenaudit"
 	"apiunit/internal/requestdiff"
@@ -26,19 +27,20 @@ type stressExport struct {
 }
 
 type exportData struct {
-	Run          model.Run
-	Headline     model.RunSummary
-	Created      string
-	Started      string
-	Finished     string
-	Duration     string
-	ConfigJSON   string
-	Items        []model.Item
-	Stress       *stressExport
-	Audit        *tokenaudit.Report
-	RequestDiff  *requestdiff.Report
-	Injection    *injection.Report
-	Authenticity *authenticity.Report
+	Run            model.Run
+	Headline       model.RunSummary
+	Created        string
+	Started        string
+	Finished       string
+	Duration       string
+	ConfigJSON     string
+	Items          []model.Item
+	Stress         *stressExport
+	Audit          *tokenaudit.Report
+	RequestDiff    *requestdiff.Report
+	Injection      *injection.Report
+	Authenticity   *authenticity.Report
+	ImageDetection *imagedetection.Report
 }
 
 func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request) {
@@ -167,6 +169,11 @@ func (s *Server) exportHTML(w http.ResponseWriter, view *model.RunView) {
 			if json.Unmarshal(raw, &rep) == nil {
 				data.Authenticity = &rep
 			}
+		case model.KindImageDetection:
+			var rep imagedetection.Report
+			if json.Unmarshal(raw, &rep) == nil {
+				data.ImageDetection = &rep
+			}
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -218,8 +225,42 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 			return "提示词注入安全测试"
 		case model.KindAuthenticity:
 			return "模型真实性"
+		case model.KindImageDetection:
+			return "生图检测"
 		}
 		return string(k)
+	},
+	"imageStatusLabel": func(s string) string {
+		switch s {
+		case "pass":
+			return "通过"
+		case "fail":
+			return "失败"
+		case "warn":
+			return "警告"
+		case "na":
+			return "N/A"
+		case "detected":
+			return "已检测到"
+		case "not_detected":
+			return "未检测到"
+		case "possible":
+			return "疑似"
+		case "unknown":
+			return "未知"
+		}
+		return s
+	},
+	"imageStatusClass": func(s string) string {
+		switch s {
+		case "pass":
+			return "ok"
+		case "fail":
+			return "bad"
+		case "warn":
+			return "warn"
+		}
+		return "muted"
 	},
 	"statusLabel": func(s model.RunStatus) string {
 		switch s {
@@ -559,6 +600,35 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 {{end}}
 
 <ul class="notes">{{range .Authenticity.Notes}}<li>{{.}}</li>{{end}}</ul>
+</section>
+{{end}}
+
+{{if .ImageDetection}}
+<section>
+<h2>生图检测</h2>
+<div class="cards">
+<div class="card"><span>模型</span><b>{{.ImageDetection.Summary.Models}}</b></div>
+<div class="card"><span>测试项</span><b>{{.ImageDetection.Summary.Phases}}</b></div>
+<div class="card"><span>通过 / 失败 / N/A</span><b><span class="ok">{{.ImageDetection.Summary.Passed}}</span> / <span class="bad">{{.ImageDetection.Summary.Failed}}</span> / {{.ImageDetection.Summary.NA}}</b></div>
+<div class="card"><span>C2PA 检出</span><b>{{.ImageDetection.Summary.C2PADetected}}</b></div>
+<div class="card"><span>SynthID 检出</span><b>{{.ImageDetection.Summary.SynthIDDetected}}</b></div>
+<div class="card"><span>在线验签</span><b>{{.ImageDetection.Summary.OnlineChecked}}</b></div>
+</div>
+{{range $m := .ImageDetection.Models}}
+<h3><span class="mono">{{$m.Model}}</span> · {{$m.TargetName}} · {{$m.Kind}} · {{$m.Size}}{{if $m.Error}} <span class="bad">· {{$m.Error}}</span>{{end}}</h3>
+<table><tr><th>测试项</th><th>结果</th><th>尺寸 / 格式</th><th>参数检查</th><th>C2PA（本地 / 在线）</th><th>SynthID（在线）</th><th>图片路径</th></tr>
+{{range $p := $m.Phases}}<tr>
+<td>{{$p.Name}}</td>
+<td class="{{imageStatusClass $p.Status}}"><b>{{imageStatusLabel $p.Status}}</b></td>
+<td>{{if $p.Image}}{{$p.Image.Width}}x{{$p.Image.Height}} · {{$p.Image.Format}}{{else}}-{{end}}</td>
+<td>{{range $p.Checks}}{{if eq .Status "fail"}}<span class="bad">{{.Name}}: {{.Detail}}</span><br>{{end}}{{end}}{{if eq $p.Status "pass"}}<span class="ok">全部通过</span>{{end}}</td>
+<td>{{if $p.Image}}{{$p.Image.Signature.C2PA.Status}}{{if $p.Image.Signature.Online}} / {{$p.Image.Signature.Online.C2PA.Outcome}}{{end}}{{else}}-{{end}}</td>
+<td>{{if $p.Image}}{{if $p.Image.Signature.Online}}{{$p.Image.Signature.Online.SynthID.Outcome}}{{else}}未检查{{end}}{{else}}-{{end}}</td>
+<td class="mono">{{if $p.Image}}{{$p.Image.Path}}{{else}}-{{end}}</td>
+</tr>{{end}}
+</table>
+{{end}}
+<ul class="notes">{{range .ImageDetection.Notes}}<li>{{.}}</li>{{end}}</ul>
 </section>
 {{end}}
 

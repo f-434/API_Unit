@@ -24,11 +24,12 @@ const (
 type RunKind string
 
 const (
-	KindStress       RunKind = "stress"
-	KindTokenAudit   RunKind = "token_audit"
-	KindRequestDiff  RunKind = "request_diff"
-	KindInjection    RunKind = "injection"
-	KindAuthenticity RunKind = "authenticity"
+	KindStress         RunKind = "stress"
+	KindTokenAudit     RunKind = "token_audit"
+	KindRequestDiff    RunKind = "request_diff"
+	KindInjection      RunKind = "injection"
+	KindAuthenticity   RunKind = "authenticity"
+	KindImageDetection RunKind = "image_detection"
 )
 
 type RunStatus string

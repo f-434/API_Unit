@@ -69,6 +69,7 @@ export default function History() {
               { value: 'request_diff', label: '请求差异审计' },
               { value: 'injection', label: '提示词注入' },
               { value: 'authenticity', label: '模型真实性' },
+              { value: 'image_detection', label: '生图检测' },
             ]} />,
           <Select key="status" allowClear placeholder="全部状态" value={status} onChange={v => { setStatus(v); setPage(1) }} style={{ width: 130 }}
             options={['running', 'completed', 'stopped', 'failed', 'interrupted'].map(s => ({ value: s, label: s }))} />,

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Alert, Button, Descriptions, Drawer, Input, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography,
+  Alert, Button, Descriptions, Drawer, Image, Input, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd'
 import { EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -100,6 +100,23 @@ export function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; it
                   { title: '证据', dataIndex: 'evidence', render: (v: string) => <span className="small-mono">{truncate(v, 180) || '-'}</span> },
                 ]}
               />
+            </div>
+          )}
+          {!!it.meta?.imagePath && (
+            <div className="panel" style={{ marginBottom: 14 }}>
+              <div className="panel-title">生成图片</div>
+              <Space align="start" wrap>
+                <Image
+                  src={String(it.meta.imagePath)}
+                  width={280}
+                  style={{ borderRadius: 8, border: '1px solid #e5e6eb' }}
+                />
+                <div className="muted" style={{ fontSize: 12, lineHeight: 1.8 }}>
+                  <div>格式：{it.meta.imageFormat || '-'}</div>
+                  <div>尺寸：{it.meta.imageWidth || '-'} × {it.meta.imageHeight || '-'}</div>
+                  <div className="small-mono" style={{ wordBreak: 'break-all' }}>{String(it.meta.imagePath)}</div>
+                </div>
+              </Space>
             </div>
           )}
           {it.meta?.truncated && (

@@ -51,6 +51,9 @@ func (s *Server) Router() http.Handler {
 	r.Post("/api/auth/login", s.handleLogin)
 	r.Post("/api/auth/logout", s.handleLogout)
 
+	// 生图检测图片需要在登录校验之外提供，供第三方在线校验站点抓取。
+	r.Get("/api/image-detection/images/{runId}/{file}", s.handleImageDetectionFile)
+
 	r.Group(func(pr chi.Router) {
 		pr.Use(s.authMiddleware)
 		pr.Get("/api/meta", s.handleMeta)
@@ -58,6 +61,8 @@ func (s *Server) Router() http.Handler {
 		pr.Post("/api/settings/purge", s.handlePurge)
 		pr.Get("/api/authenticity/config", s.handleAuthenticityConfigGet)
 		pr.Post("/api/authenticity/config", s.handleAuthenticityConfigSave)
+		pr.Get("/api/image-detection/config", s.handleImageDetectionConfigGet)
+		pr.Post("/api/image-detection/config", s.handleImageDetectionConfigSave)
 		pr.Get("/api/authenticity/templates", s.handleAuthenticityTemplatesList)
 		pr.Post("/api/authenticity/templates", s.handleAuthenticityTemplateCreate)
 		pr.Get("/api/authenticity/templates/{id}", s.handleAuthenticityTemplateGet)

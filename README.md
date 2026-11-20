@@ -1,6 +1,6 @@
 # API Unit · LLM 接口测试台
 
-一个**独立运行**的 Go + React 前后端分离测试系统，面向 New API / One API / OpenAI 兼容网关，提供四类核心能力：
+一个**独立运行**的 Go + React 前后端分离测试系统，面向 New API / One API / OpenAI 兼容网关，提供六类核心能力：
 
 | 模块 | 说明 |
 | --- | --- |
@@ -9,6 +9,7 @@
 | **请求差异审计** | 保存完整请求快照与 SHA-256；对 `systemInstruction`、`contents`、`tools`、`generationConfig`、`cachedContent`、`safetySettings` 等做 JSONPath 结构化 Diff；扫描隐藏指令 |
 | **提示词注入** | 内置攻击用例 + 规则判定 + LLM-as-judge，输出 ASR、分类风险与逐用例明细 |
 | **模型真实性** | 官方接口指纹 + 响应来源 + 本地随机 nonce 工具回环 + 可选自建 MCP/证明页；多模型并发，输出通过/可疑/仿冒/证据不足 |
+| **生图检测** | 真实验证文生图/改图/聊天生图的尺寸、格式与透明背景；按原始字节保存图片，检查 C2PA 元数据与 SynthID 水印，并提供 Adobe / OpenAI / Azure 在线校验入口 |
 
 系统不修改、不侵入 New API 源码，只通过标准 HTTP 接口访问网关。
 
@@ -26,7 +27,7 @@ API_Unit/
 │       ├── config/           环境变量
 │       ├── engine/           调度、重试、指标、实时快照、SQLite 落库
 │       ├── model/            领域模型（Run/Item/Snapshot/Aggregate...）
-│       ├── modules/          stress / tokenaudit / injection
+│       ├── modules/          stress / tokenaudit / requestdiff / injection / authenticity / imagedetection
 │       ├── protocol/         OpenAI / Claude / Gemini 协议适配与 SSE 解析
 │       ├── requestdiff/      请求快照、指纹、JSON Diff、隐藏指令扫描、审计模块
 │       ├── secret/           AES-256-GCM 密钥加密、会话签名
@@ -298,6 +299,33 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 
 ---
 
+### 5.6 生图检测
+
+**目标**：合并 `image-param-verifier` 的参数一致性测试，并在此基础上确认生成图片的来源签名（C2PA 元数据、SynthID 水印）是否完整。
+
+**测试能力**
+
+- **文生图**：`POST /v1/images/generations`，分别使用 `background=transparent/opaque/auto`，校验尺寸、输出格式、透明背景。
+- **改图**：`POST /v1/images/edits` 与兼容路径 `/v1/edits`，以文生图结果为输入，保存改图前后图片、提示词与原始响应；改图效果以人工审核为主。
+- **聊天生图**：`POST /v1/chat/completions`，从 `data`、`message.images`、`data:image/...;base64`、markdown 图片或数组 content 中提取图片。
+- 只勾选改图时会自动补跑一次 `transparent` 文生图作为输入；图片接口模型与聊天接口模型按类型自动跳过不匹配的测试项。
+
+**签名检查**
+
+1. **本地 C2PA**：解析 PNG `caBX`、JPEG APP11 / JUMBF、WebP `C2PA` 块，只判断清单是否存在，不做证书链验签。
+2. **本地 SynthID 线索**：检查显式 `SynthID` 标记；SynthID 本体是像素级水印，本地无法验证。
+3. **在线双签名校验**：在「生图检测」页配置 OpenAI API Key 后，调用 `POST /v1/content_provenance_checks`，一次请求同时返回 C2PA（含 `validation_state`、签发者）与 SynthID 结果。Key 加密存储，读取时打码。
+4. **第三方在线校验入口**：每张图片直接提供 Adobe Content Credentials、OpenAI 内容验证、Azure AI 内容验证按钮；Adobe 在图片可公网访问时自动带上 `inspect.cr?source=<图片地址>`，内网部署则下载后手动上传。
+
+**关键实现约束**
+
+- 图片按上游返回的**原始字节**落盘，不解码后重新编码，避免 C2PA 元数据被破坏、SynthID 水印被削弱。
+- 图片目录：`<DATA_DIR>/image-detection/<runId>/`；删除测试记录与按保留天数清理时会同步删除。
+- 站内图片路由为 `/api/image-detection/images/{runId}/{file}`，文件名含随机前缀，显式返回 CORS 头，供在线校验站点抓取；请求与响应原始文件也保存在同一目录，但不通过该路由暴露。
+- 签名缺失不等于造假：转码、缩放、截图或上游重编码都可能移除签名信号。
+
+---
+
 ## 6. API 摘要
 
 所有接口位于 `/api`；设置 `AUTH_PASSWORD` 后除健康检查与登录外均需 Cookie。
@@ -325,8 +353,10 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | GET | `/api/diffs/export` | Diff 报告 JSON/HTML |
 | GET | `/api/runs/{id}/export` | 测试报告 JSON/HTML/CSV |
 | GET/POST | `/api/authenticity/config` | 模型真实性的 MCP / 证明页配置（headers 加密存储，读取时打码） |
+| GET/POST | `/api/image-detection/config` | 生图检测的在线验签 Base URL / OpenAI API Key（加密存储，读取时打码） |
+| GET | `/api/image-detection/images/{runId}/{file}` | 生图检测图片；免登录、允许跨域，供 Adobe Inspect 等在线校验站点抓取 |
 
-测试类型 `kind`：`stress`、`token_audit`、`request_diff`、`injection`、`authenticity`。
+测试类型 `kind`：`stress`、`token_audit`、`request_diff`、`injection`、`authenticity`、`image_detection`。
 
 ---
 

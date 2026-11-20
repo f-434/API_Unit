@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"apiunit/internal/engine"
 	"apiunit/internal/model"
 	"apiunit/internal/modules/authenticity"
+	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/stress"
 	"apiunit/internal/modules/tokenaudit"
@@ -70,6 +72,7 @@ func main() {
 	manager.Register(requestdiff.New(st))
 	manager.Register(injection.New(st, client))
 	manager.Register(authenticity.New(st))
+	manager.Register(imagedetection.New(st, imagedetection.ImageDir(cfg.DataDir)))
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -78,7 +81,7 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 	}
 
-	go purgeLoop(st, cfg.RetentionDays)
+	go purgeLoop(st, cfg.DataDir, cfg.RetentionDays)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -99,16 +102,22 @@ func main() {
 	log.Println("bye")
 }
 
-func purgeLoop(st *store.Store, days int) {
+func purgeLoop(st *store.Store, dataDir string, days int) {
 	if days <= 0 {
 		return
 	}
+	imageRoot := filepath.Join(dataDir, "image-detection")
 	purge := func() {
 		cutoff := model.NowMs() - int64(days)*24*3600*1000
 		if n, err := st.PurgeBefore(cutoff); err != nil {
 			log.Printf("purge old runs: %v", err)
 		} else if n > 0 {
 			log.Printf("purged %d old runs", n)
+		}
+		if n, err := imagedetection.PurgeImages(imageRoot, cutoff); err != nil {
+			log.Printf("purge old images: %v", err)
+		} else if n > 0 {
+			log.Printf("purged %d old image directories", n)
 		}
 	}
 	purge()

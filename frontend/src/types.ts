@@ -1,4 +1,4 @@
-export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection' | 'authenticity'
+export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection' | 'authenticity' | 'image_detection'
 export type Protocol = 'auto' | 'openai' | 'claude' | 'gemini'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'stopped' | 'failed' | 'interrupted'
 
@@ -670,6 +670,146 @@ export interface AuthenticityTemplate {
   sourceItemId?: number
   createdBy?: string
   createdAt: number
+}
+
+export interface ImageDetectionCheck {
+  name: string
+  status: 'pass' | 'fail' | 'na' | 'warn' | string
+  detail?: string
+}
+
+export interface ImageDetectionLocalSignature {
+  status: 'detected' | 'not_detected' | 'possible' | 'unknown' | string
+  evidence?: string[]
+}
+
+export interface ImageDetectionOnlineC2PA {
+  outcome?: 'detected' | 'not_detected' | string
+  validationState?: 'trusted' | 'valid' | 'invalid' | 'not_present' | string
+  issuer?: string
+  model?: string
+  generatedAt?: string
+}
+
+export interface ImageDetectionOnlineSynthID {
+  outcome?: 'detected' | 'not_detected' | string
+  model?: string
+  generatedAt?: string
+}
+
+export interface ImageDetectionOnlineSignature {
+  status: 'checked' | 'unconfigured' | 'error' | 'skipped' | string
+  error?: string
+  c2pa: ImageDetectionOnlineC2PA
+  synthId: ImageDetectionOnlineSynthID
+  createdAt?: number
+  raw?: string
+}
+
+export interface ImageDetectionVerifyLink {
+  key: 'adobe' | 'openai' | 'azure' | string
+  label: string
+  url: string
+  mode?: 'auto' | 'upload' | string
+  hint?: string
+  autoUrl?: string
+}
+
+export interface ImageDetectionSignature {
+  c2pa: ImageDetectionLocalSignature
+  synthId: ImageDetectionLocalSignature
+  online?: ImageDetectionOnlineSignature
+  links: ImageDetectionVerifyLink[]
+  notes?: string[]
+}
+
+export interface ImageDetectionImage {
+  path: string
+  upstreamUrl?: string
+  format: string
+  width: number
+  height: number
+  bytes: number
+  sha256: string
+  signature: ImageDetectionSignature
+}
+
+export interface ImageDetectionPhase {
+  id: string
+  name: string
+  status: 'pass' | 'fail' | 'na' | 'warn' | string
+  reason?: string
+  statusCode?: number
+  responseModel?: string
+  checks?: ImageDetectionCheck[]
+  image?: ImageDetectionImage
+  durationMs: number
+  requestId?: string
+  error?: string
+  requestJson?: string
+  responseJson?: string
+}
+
+export interface ImageDetectionModelReport {
+  targetId: string
+  targetName: string
+  model: string
+  kind: string
+  size: string
+  protocol: string
+  endpoint?: string
+  passed: number
+  failed: number
+  na: number
+  total: number
+  durationMs: number
+  phases: ImageDetectionPhase[]
+  error?: string
+}
+
+export interface ImageDetectionSummary {
+  models: number
+  phases: number
+  passed: number
+  failed: number
+  na: number
+  c2paDetected: number
+  synthIdDetected: number
+  onlineChecked: number
+}
+
+export interface ImageDetectionReport {
+  models: ImageDetectionModelReport[]
+  summary: ImageDetectionSummary
+  notes: string[]
+}
+
+export interface ImageDetectionLiveModel {
+  targetId: string
+  targetName: string
+  model: string
+  kind: string
+  size: string
+  stage: string
+  done: boolean
+  passed: number
+  failed: number
+  na: number
+  error?: string
+  startedAt: number
+  elapsedMs: number
+}
+
+export interface ImageDetectionSettings {
+  baseUrl: string
+  hasKey: boolean
+  keyMasked: string
+  endpoint: string
+}
+
+export interface ImageDetectionConfigResponse {
+  settings: ImageDetectionSettings
+  phases: { name: string; label: string; kind: string }[]
 }
 
 export interface AuthenticityHostedConfig {
