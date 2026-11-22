@@ -93,7 +93,10 @@ export const api = {
   archiveAuthenticityTemplate: (id: string) => post<{ ok: boolean }>(`/api/authenticity/templates/${id}/archive`),
 
   imageDetectionConfig: () => get<ImageDetectionConfigResponse>('/api/image-detection/config'),
-  saveImageDetectionConfig: (body: { baseUrl?: string; apiKey?: string; clearKey?: boolean }) =>
+  saveImageDetectionConfig: (body: {
+    baseUrl?: string; apiKey?: string; clearKey?: boolean
+    proxyUrl?: string; clearProxy?: boolean; forceTls12?: boolean
+  }) =>
     post<ImageDetectionConfigResponse>('/api/image-detection/config', body),
 
   createRun: (kind: Kind, config: any) => post<{ id: string; run: Run }>('/api/runs', { kind, config }),

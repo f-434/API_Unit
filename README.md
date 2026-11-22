@@ -312,6 +312,14 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 - **聊天生图**：`POST /v1/chat/completions`，从 `data`、`message.images`、`data:image/...;base64`、markdown 图片或数组 content 中提取图片。
 - 只勾选改图时会自动补跑一次 `transparent` 文生图作为输入；图片接口模型与聊天接口模型按类型自动跳过不匹配的测试项。
 
+**重试与请求传输**
+
+- 只有传输错误（连接失败、响应体读取超时）、`429` 与 `5xx` 会按配置的开关重试；参数检查失败、响应解析失败等确定性结果不会重试。
+- 「生图检测」页可配置生图请求专属的传输参数：
+  - **代理**：支持 `http`/`https`/`socks5`，可带账号密码，加密存储并在接口中打码；留空时沿用 `HTTP_PROXY` / `HTTPS_PROXY`。
+  - **强制 TLS 1.2**：部分网络会限速 TLS 1.3 的大响应体（base64 图片），开启后改用 TLS 1.2 + AES-256-GCM。
+  - **单请求超时**：包含响应体下载时间；图片以 base64 返回时体积通常为几 MB，链路较慢时应适当调大。
+
 **签名检查**
 
 1. **本地 C2PA**：解析 PNG `caBX`、JPEG APP11 / JUMBF、WebP `C2PA` 块，只判断清单是否存在，不做证书链验签。

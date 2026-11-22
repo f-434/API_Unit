@@ -47,7 +47,8 @@ func (m *Module) Validate(raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("模型并发不能超过 16")
 	}
 	if c.TimeoutMs <= 0 {
-		c.TimeoutMs = 180000
+		// 生图响应通常是几 MB 的 base64，下载时间可能远超生成时间。
+		c.TimeoutMs = 600000
 	}
 	if c.TimeoutMs > 900000 {
 		return nil, fmt.Errorf("单请求超时不能超过 900 秒")

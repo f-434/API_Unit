@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -58,17 +60,50 @@ type runner struct {
 func newRunner(cfg *Config, settings Settings, runID, imageRoot string, sess *engine.Session, pub *livePublisher) *runner {
 	timeout := time.Duration(cfg.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
-		timeout = 180 * time.Second
+		timeout = 600 * time.Second
 	}
 	return &runner{
 		cfg:       cfg,
 		settings:  settings,
 		runID:     runID,
 		imageRoot: imageRoot,
-		http:      &http.Client{Timeout: timeout},
-		sess:      sess,
-		pub:       pub,
+		http: &http.Client{
+			Timeout:   timeout,
+			Transport: newImageTransport(settings),
+		},
+		sess: sess,
+		pub:  pub,
 	}
+}
+
+// newImageTransport 为生图请求构建独立的传输层：
+// 支持自定义代理（含带账号密码的代理）与可选强制 TLS 1.2。
+// 不配置代理时仍沿用 HTTP_PROXY / HTTPS_PROXY 环境变量。
+func newImageTransport(settings Settings) *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if raw := strings.TrimSpace(settings.ProxyURL); raw != "" {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" {
+			tr.Proxy = http.ProxyURL(u)
+		}
+	}
+	if settings.ForceTLS12 {
+		// 部分网络会限速 TLS 1.3 连接；强制 TLS 1.2 并使用 AES-256-GCM
+		// 可显著提高大响应体（base64 图片）的传输速度。
+		tr.TLSClientConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			MaxVersion: tls.VersionTLS12,
+			NextProtos: []string{"http/1.1"},
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+			},
+		}
+	}
+	return tr
 }
 
 func (r *runner) runModel(ctx context.Context, j job) ModelReport {
@@ -137,7 +172,9 @@ func (r *runner) runPhaseWithRetry(ctx context.Context, j job, phase string, sta
 			return canceledPhase(phase), nil
 		}
 		last, lastImg = r.runPhase(ctx, j, phase, state)
-		if last.Status != StatusFail {
+		// 只有传输错误或可重试的服务端错误才重试；
+		// 参数检查失败、解析失败等确定性结果不重试。
+		if last.Status != StatusFail || !last.retryable {
 			return last, lastImg
 		}
 		if i < attempts-1 {
@@ -172,6 +209,28 @@ func canceledPhase(phase string) PhaseReport {
 	}
 }
 
+// failTransport 记录网络连接失败、响应体读取超时等传输错误。
+// 是否重试由 retryOnNetwork 决定，避免对长时间超时无脑重试。
+func (r *runner) failTransport(pr PhaseReport, detail string) PhaseReport {
+	pr = failPhase(pr, "HTTP 请求", detail)
+	pr.retryable = r.cfg.Retry.RetryOnNetwork
+	return pr
+}
+
+// failStatus 记录非 200 状态码，并按状态码与重试配置判断是否重试。
+func (r *runner) failStatus(pr PhaseReport, status int, detail string) PhaseReport {
+	pr = failPhase(pr, "HTTP 状态码", detail)
+	switch {
+	case status == http.StatusTooManyRequests:
+		pr.retryable = r.cfg.Retry.RetryOn429
+	case status == http.StatusRequestTimeout, status == http.StatusConflict, status == http.StatusTooEarly:
+		pr.retryable = r.cfg.Retry.RetryOn5xx
+	case status >= 500:
+		pr.retryable = r.cfg.Retry.RetryOn5xx
+	}
+	return pr
+}
+
 func (r *runner) runPhase(ctx context.Context, j job, phase string, state *modelState) (PhaseReport, []byte) {
 	switch phase {
 	case PhaseGenTransparent, PhaseGenOpaque, PhaseGenAuto, PhaseEditSource:
@@ -199,9 +258,10 @@ func (r *runner) runPhase(ctx context.Context, j job, phase string, state *model
 
 // ---------------- 文生图 ----------------
 
-func (r *runner) doGeneration(ctx context.Context, j job, phase, background string) (PhaseReport, []byte) {
+func (r *runner) doGeneration(ctx context.Context, j job, phase, background string) (pr PhaseReport, img []byte) {
 	start := time.Now()
-	pr := PhaseReport{ID: phase, Name: phaseLabel(phase), Checks: make([]CheckDetail, 0, 8)}
+	// 命名返回值：defer 里写入的耗时才能带回给调用方。
+	pr = PhaseReport{ID: phase, Name: phaseLabel(phase), Checks: make([]CheckDetail, 0, 8)}
 	defer func() { pr.DurationMs = time.Since(start).Milliseconds() }()
 
 	token := randomHex(6)
@@ -221,13 +281,13 @@ func (r *runner) doGeneration(ctx context.Context, j job, phase, background stri
 	pr.StatusCode = res.Status
 	pr.RequestID = res.RequestID
 	if err != nil {
-		return failPhase(pr, "HTTP 请求", "请求失败: "+err.Error()), nil
+		return r.failTransport(pr, "请求失败: "+err.Error()), nil
 	}
 	r.saveAux(token, phase, "response", res.Body)
 	pr.ResponseJSON = sanitizeResponse(res.Body)
 
 	if res.Status != http.StatusOK {
-		return failPhase(pr, "HTTP 状态码", fmt.Sprintf("HTTP %d: %s", res.Status, truncateText(string(res.Body), 500))), nil
+		return r.failStatus(pr, res.Status, fmt.Sprintf("HTTP %d: %s", res.Status, truncateText(string(res.Body), 500))), nil
 	}
 	pr.Checks = append(pr.Checks, CheckDetail{Name: "HTTP 状态码", Status: StatusPass, Detail: "200"})
 
@@ -260,9 +320,10 @@ func (r *runner) doGeneration(ctx context.Context, j job, phase, background stri
 
 // ---------------- 改图 ----------------
 
-func (r *runner) doEdit(ctx context.Context, j job, phase string, state *modelState) PhaseReport {
+func (r *runner) doEdit(ctx context.Context, j job, phase string, state *modelState) (pr PhaseReport) {
 	start := time.Now()
-	pr := PhaseReport{ID: phase, Name: phaseLabel(phase), Checks: make([]CheckDetail, 0, 8)}
+	// 命名返回值：defer 里写入的耗时才能带回给调用方。
+	pr = PhaseReport{ID: phase, Name: phaseLabel(phase), Checks: make([]CheckDetail, 0, 8)}
 	defer func() { pr.DurationMs = time.Since(start).Milliseconds() }()
 
 	if len(state.sourceBytes) == 0 {
@@ -291,13 +352,13 @@ func (r *runner) doEdit(ctx context.Context, j job, phase string, state *modelSt
 	pr.StatusCode = res.Status
 	pr.RequestID = res.RequestID
 	if err != nil {
-		return failPhase(pr, "HTTP 请求", "请求失败: "+err.Error())
+		return r.failTransport(pr, "请求失败: "+err.Error())
 	}
 	r.saveAux(token, phase, "response", res.Body)
 	pr.ResponseJSON = sanitizeResponse(res.Body)
 
 	if res.Status != http.StatusOK {
-		return failPhase(pr, "HTTP 状态码", fmt.Sprintf("HTTP %d: %s", res.Status, truncateText(string(res.Body), 500)))
+		return r.failStatus(pr, res.Status, fmt.Sprintf("HTTP %d: %s", res.Status, truncateText(string(res.Body), 500)))
 	}
 	pr.Checks = append(pr.Checks, CheckDetail{Name: "HTTP 状态码", Status: StatusPass, Detail: "200"})
 
@@ -333,9 +394,10 @@ func (r *runner) doEdit(ctx context.Context, j job, phase string, state *modelSt
 
 // ---------------- 聊天生图 ----------------
 
-func (r *runner) doChat(ctx context.Context, j job, phase string) PhaseReport {
+func (r *runner) doChat(ctx context.Context, j job, phase string) (pr PhaseReport) {
 	start := time.Now()
-	pr := PhaseReport{ID: phase, Name: phaseLabel(phase), Checks: make([]CheckDetail, 0, 8)}
+	// 命名返回值：defer 里写入的耗时才能带回给调用方。
+	pr = PhaseReport{ID: phase, Name: phaseLabel(phase), Checks: make([]CheckDetail, 0, 8)}
 	defer func() { pr.DurationMs = time.Since(start).Milliseconds() }()
 
 	token := randomHex(6)
@@ -354,13 +416,13 @@ func (r *runner) doChat(ctx context.Context, j job, phase string) PhaseReport {
 	pr.StatusCode = res.Status
 	pr.RequestID = res.RequestID
 	if err != nil {
-		return failPhase(pr, "HTTP 请求", "请求失败: "+err.Error())
+		return r.failTransport(pr, "请求失败: "+err.Error())
 	}
 	r.saveAux(token, phase, "response", res.Body)
 	pr.ResponseJSON = sanitizeResponse(res.Body)
 
 	if res.Status != http.StatusOK {
-		return failPhase(pr, "HTTP 状态码", fmt.Sprintf("HTTP %d: %s", res.Status, truncateText(string(res.Body), 500)))
+		return r.failStatus(pr, res.Status, fmt.Sprintf("HTTP %d: %s", res.Status, truncateText(string(res.Body), 500)))
 	}
 	pr.Checks = append(pr.Checks, CheckDetail{Name: "HTTP 状态码", Status: StatusPass, Detail: "200"})
 	var chatMeta struct {

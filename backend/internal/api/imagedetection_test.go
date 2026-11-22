@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -219,4 +220,61 @@ func testPNG(t *testing.T) []byte {
 		t.Fatalf("encode png: %v", err)
 	}
 	return buf.Bytes()
+}
+
+// TestImageDetectionConfigProxyRoundTrip 验证代理与 TLS 1.2 开关能保存、脱敏并回读。
+func TestImageDetectionConfigProxyRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	box, err := secret.LoadOrCreate(filepath.Join(dir, "secret.key"))
+	if err != nil {
+		t.Fatalf("secret: %v", err)
+	}
+	st, err := store.Open(filepath.Join(dir, "apiunit.db"), box)
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	defer st.Close()
+
+	cfg := &config.Config{DataDir: dir, WebDir: dir, MaxConcurrentRuns: 1, MaxBodyBytes: 1 << 20}
+	ts := httptest.NewServer(New(cfg, st, engine.NewManager(st, nil, nil, 1), nil, nil, box).Router())
+	defer ts.Close()
+
+	body := `{"baseUrl":"https://api.openai.com","proxyUrl":"http://user:secret@127.0.0.1:8080","forceTls12":true}`
+	resp, err := http.Post(ts.URL+"/api/image-detection/config", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("post config: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("post config HTTP %d: %s", resp.StatusCode, raw)
+	}
+	var saved struct {
+		Settings imagedetection.SettingsView `json:"settings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&saved); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if !saved.Settings.ProxyConfigured || !saved.Settings.ForceTLS12 {
+		t.Fatalf("配置未生效: %+v", saved.Settings)
+	}
+	if strings.Contains(saved.Settings.ProxyMasked, "secret") || !strings.Contains(saved.Settings.ProxyMasked, "xxxx") {
+		t.Fatalf("代理密码未脱敏: %q", saved.Settings.ProxyMasked)
+	}
+
+	// 再读一次，确认设置已持久化。
+	getResp, err := http.Get(ts.URL + "/api/image-detection/config")
+	if err != nil {
+		t.Fatalf("get config: %v", err)
+	}
+	defer getResp.Body.Close()
+	var again struct {
+		Settings imagedetection.SettingsView `json:"settings"`
+	}
+	if err := json.NewDecoder(getResp.Body).Decode(&again); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if !again.Settings.ProxyConfigured || !again.Settings.ForceTLS12 {
+		t.Fatalf("配置未持久化: %+v", again.Settings)
+	}
 }

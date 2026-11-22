@@ -152,6 +152,10 @@ type PhaseReport struct {
 	Error         string        `json:"error,omitempty"`
 	RequestJSON   string        `json:"requestJson,omitempty"`
 	ResponseJSON  string        `json:"responseJson,omitempty"`
+
+	// retryable 表示该失败是否属于可重试的传输/服务端错误。
+	// 由本次运行的重试策略决定，不进入报告 JSON。
+	retryable bool
 }
 
 type CheckDetail struct {

@@ -297,7 +297,16 @@ export default function ImageDetectionReportView({
                   ? <Tag color={m.failed ? 'red' : 'green'}>完成</Tag>
                   : <Tag color="processing">运行中</Tag>,
               },
-              { title: '耗时', dataIndex: 'elapsedMs', width: 90, render: (v: number) => `${((v || 0) / 1000).toFixed(1)}s` },
+              {
+                title: '耗时', dataIndex: 'elapsedMs', width: 90,
+                render: (v: number, m: ImageDetectionLiveModel) => {
+                  // 运行中 extra 只在阶段切换时发布；这里按开始时间实时计算，
+                  // 避免长请求期间一直显示 0.0s。
+                  const started = Number(m.startedAt || 0)
+                  const ms = m.done || !started ? (v || 0) : Math.max(v || 0, Date.now() - started)
+                  return `${(ms / 1000).toFixed(1)}s`
+                },
+              },
               { title: '错误', dataIndex: 'error', ellipsis: true, render: (v: string) => v ? <span className="small-mono" style={{ color: '#dc2626' }}>{v}</span> : '-' },
             ]}
           />

@@ -807,6 +807,12 @@ export interface ImageDetectionSettings {
   hasKey: boolean
   keyMasked: string
   endpoint: string
+  /** 是否配置了生图请求代理。 */
+  proxyConfigured?: boolean
+  /** 代理地址掩码（密码已隐藏）。 */
+  proxyMasked?: string
+  /** 是否强制生图请求使用 TLS 1.2。 */
+  forceTls12?: boolean
 }
 
 export interface ImageDetectionConfigResponse {

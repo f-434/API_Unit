@@ -54,6 +54,8 @@ export default function ImageDetectionNew() {
   const [savingKey, setSavingKey] = useState(false)
   const [keyInput, setKeyInput] = useState('')
   const [baseUrl, setBaseUrl] = useState('https://api.openai.com')
+  const [proxyInput, setProxyInput] = useState('')
+  const [forceTls12, setForceTls12] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
   const { data: config } = useQuery({ queryKey: ['imageDetectionConfig'], queryFn: api.imageDetectionConfig })
@@ -64,6 +66,7 @@ export default function ImageDetectionNew() {
   useEffect(() => {
     if (!config || loaded) return
     setBaseUrl(config.settings.baseUrl || 'https://api.openai.com')
+    setForceTls12(!!config.settings.forceTls12)
     if (config.settings.hasKey) setSignatureOnline(true)
     setLoaded(true)
   }, [config, loaded])
@@ -97,20 +100,26 @@ export default function ImageDetectionNew() {
     setPhases(prev => checked ? Array.from(new Set([...prev, name])) : prev.filter(p => p !== name))
   }
 
-  const saveKey = async (clear = false) => {
+  // clearKey / clearProxy 用于显式清除；留空的输入框表示保持原值。
+  const saveKey = async (clearKey = false, clearProxy = false) => {
     setSavingKey(true)
     try {
       const res = await api.saveImageDetectionConfig({
         baseUrl,
-        apiKey: clear ? '' : keyInput,
-        clearKey: clear,
+        // 清除某一项时不要顺带提交另一项的输入，避免误改。
+        apiKey: clearKey || clearProxy ? '' : keyInput,
+        clearKey,
+        proxyUrl: clearKey || clearProxy ? '' : proxyInput,
+        clearProxy,
+        forceTls12,
       })
       setKeyInput('')
+      setProxyInput('')
       setBaseUrl(res.settings.baseUrl)
       qc.setQueryData(['imageDetectionConfig'], res)
-      if (clear) setSignatureOnline(false)
+      if (clearKey) setSignatureOnline(false)
       else if (res.settings.hasKey) setSignatureOnline(true)
-      message.success(clear ? '已清除在线验签 API Key' : '在线验签配置已保存')
+      message.success(clearKey ? '已清除在线验签 API Key' : clearProxy ? '已清除生图请求代理' : '生图检测配置已保存')
     } catch (e: any) {
       message.error(e?.message || '保存失败')
     } finally {
@@ -137,14 +146,14 @@ export default function ImageDetectionNew() {
           label: r.label || undefined,
         })),
         concurrency: Number(v.concurrency || 2),
-        timeoutMs: Number(v.timeoutSec || 180) * 1000,
+        timeoutMs: Number(v.timeoutSec || 600) * 1000,
         retry: {
-          maxRetries: Number(v.maxRetries ?? 1),
+          maxRetries: Number(v.maxRetries ?? 0),
           backoffMs: Number(v.backoffMs ?? 800),
           maxBackoffMs: Number(v.maxBackoffMs ?? 5000),
-          retryOn429: true,
-          retryOn5xx: true,
-          retryOnNetwork: true,
+          retryOn429: !!v.retryOn429,
+          retryOn5xx: !!v.retryOn5xx,
+          retryOnNetwork: !!v.retryOnNetwork,
         },
         phases,
         generationPrompt: v.generationPrompt,
@@ -178,10 +187,15 @@ export default function ImageDetectionNew() {
         layout="vertical"
         initialValues={{
           concurrency: 2,
-          timeoutSec: 180,
-          maxRetries: 1,
+          // 生图响应体是几 MB 的 base64，默认给足下载时间并关闭重试，
+          // 避免超时后再等一倍时间。可在页面上按需调整。
+          timeoutSec: 600,
+          maxRetries: 0,
           backoffMs: 800,
           maxBackoffMs: 5000,
+          retryOn429: true,
+          retryOn5xx: true,
+          retryOnNetwork: true,
           outputFormat: 'png',
           generationPrompt: GENERATION_PROMPT,
           editPrompt: EDIT_PROMPT,
@@ -302,7 +316,7 @@ export default function ImageDetectionNew() {
 
           <Row gutter={[16, 10]}>
             <Col xs={12} lg={4}><Form.Item name="concurrency" label="模型并发"><InputNumber min={1} max={16} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="单请求超时（秒）"><InputNumber min={10} max={900} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="单请求超时（秒，含图片下载）"><InputNumber min={10} max={900} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="maxRetries" label="最大重试"><InputNumber min={0} max={5} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="backoffMs" label="退避基数 ms"><InputNumber min={0} max={60000} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="maxBackoffMs" label="最大退避 ms"><InputNumber min={0} max={120000} style={{ width: '100%' }} /></Form.Item></Col>
@@ -310,6 +324,16 @@ export default function ImageDetectionNew() {
               <Form.Item name="outputFormat" label="输出格式">
                 <Select options={[{ value: 'png', label: 'png' }, { value: 'jpeg', label: 'jpeg' }, { value: 'webp', label: 'webp' }]} />
               </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={[16, 10]}>
+            <Col xs={8} lg={4}><Form.Item name="retryOn429" label="重试 429" valuePropName="checked"><Switch /></Form.Item></Col>
+            <Col xs={8} lg={4}><Form.Item name="retryOn5xx" label="重试 5xx" valuePropName="checked"><Switch /></Form.Item></Col>
+            <Col xs={8} lg={4}><Form.Item name="retryOnNetwork" label="重试网络错误" valuePropName="checked"><Switch /></Form.Item></Col>
+            <Col xs={24} lg={12}>
+              <div className="muted" style={{ fontSize: 12, marginTop: 30 }}>
+                只有传输错误、429 和 5xx 会按上述开关重试；参数检查失败不会重试。图片响应体很大且下载慢时，建议提高超时并关闭“重试网络错误”。
+              </div>
             </Col>
           </Row>
           <Row gutter={[16, 10]}>
@@ -327,7 +351,7 @@ export default function ImageDetectionNew() {
         </div>
 
         <div className="panel">
-          <div className="panel-title">3. 来源签名检测（C2PA / SynthID）</div>
+          <div className="panel-title">3. 来源签名与请求传输</div>
           <Row gutter={[16, 12]} align="middle">
             <Col xs={12} lg={5}>
               <Space size={6}>
@@ -355,9 +379,10 @@ export default function ImageDetectionNew() {
             </Col>
           </Row>
 
-          <Row gutter={[10, 10]} align="middle" style={{ marginTop: 12 }}>
+          <Row gutter={[10, 10]} align="top" style={{ marginTop: 12 }}>
             <Col xs={24} lg={8}>
               <Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.openai.com" />
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>在线验签 Base URL</div>
             </Col>
             <Col xs={24} lg={8}>
               <Input.Password
@@ -366,11 +391,35 @@ export default function ImageDetectionNew() {
                 placeholder={hasKey ? '输入新 Key 可覆盖，留空保持不变' : 'sk-...'}
                 autoComplete="new-password"
               />
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>在线验签 API Key</div>
             </Col>
             <Col xs={24} lg={8}>
-              <Space>
+              <Input
+                value={proxyInput}
+                onChange={e => setProxyInput(e.target.value)}
+                placeholder={config?.settings?.proxyConfigured
+                  ? `已配置 ${config.settings.proxyMasked}，留空保持不变`
+                  : '生图代理，例如 http://127.0.0.1:7890'}
+                autoComplete="off"
+              />
+              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>支持 http/https/socks5，可带账号密码；仅用于生图请求</div>
+            </Col>
+          </Row>
+          <Row gutter={[10, 10]} align="middle" style={{ marginTop: 10 }}>
+            <Col xs={24} lg={10}>
+              <Space size={6}>
+                <Switch checked={forceTls12} onChange={setForceTls12} />
+                <span>强制 TLS 1.2</span>
+              </Space>
+              <div className="muted" style={{ fontSize: 12 }}>
+                部分网络会限速 TLS 1.3 的大响应体；开启后生图请求改用 TLS 1.2 + AES-256-GCM
+              </div>
+            </Col>
+            <Col xs={24} lg={14}>
+              <Space wrap>
                 <Button icon={<SaveOutlined />} loading={savingKey} onClick={() => saveKey(false)}>保存配置</Button>
                 <Button danger type="text" disabled={!hasKey} onClick={() => saveKey(true)}>清除 Key</Button>
+                <Button danger type="text" disabled={!config?.settings?.proxyConfigured} onClick={() => saveKey(false, true)}>清除代理</Button>
               </Space>
             </Col>
           </Row>

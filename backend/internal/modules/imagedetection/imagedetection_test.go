@@ -3,6 +3,7 @@ package imagedetection
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"image"
@@ -15,7 +16,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"apiunit/internal/engine"
 	"apiunit/internal/model"
 )
 
@@ -315,5 +318,116 @@ func TestSignatureReportLinks(t *testing.T) {
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(`{"results":[]}`), &raw); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRetryClassificationHonorsPolicy(t *testing.T) {
+	r := &runner{cfg: &Config{Retry: engine.RetryPolicy{
+		MaxRetries:     2,
+		RetryOn429:     false,
+		RetryOn5xx:     true,
+		RetryOnNetwork: false,
+	}}}
+	if pr := r.failTransport(PhaseReport{}, "timeout"); pr.retryable {
+		t.Fatal("retryOnNetwork 关闭时，传输错误不应重试")
+	}
+	if pr := r.failStatus(PhaseReport{}, http.StatusTooManyRequests, "rate"); pr.retryable {
+		t.Fatal("retryOn429 关闭时，429 不应重试")
+	}
+	if pr := r.failStatus(PhaseReport{}, http.StatusBadGateway, "server"); !pr.retryable {
+		t.Fatal("retryOn5xx 开启时，5xx 应重试")
+	}
+	if pr := r.failStatus(PhaseReport{}, http.StatusBadRequest, "bad"); pr.retryable {
+		t.Fatal("400 不应重试")
+	}
+	// 参数检查失败属于确定性结果，即使状态码为 200 也不应重试。
+	if pr := failPhase(PhaseReport{StatusCode: http.StatusOK}, "透明背景", "不透明"); pr.retryable {
+		t.Fatal("参数检查失败不应重试")
+	}
+}
+
+func TestNewImageTransport(t *testing.T) {
+	tr := newImageTransport(Settings{
+		ProxyURL:   "http://user:pass@127.0.0.1:8080",
+		ForceTLS12: true,
+	})
+	if tr.Proxy == nil {
+		t.Fatal("配置代理后 Proxy 不应为空")
+	}
+	req, _ := http.NewRequest(http.MethodGet, "https://example.com/v1/models", nil)
+	u, err := tr.Proxy(req)
+	if err != nil || u == nil || u.Host != "127.0.0.1:8080" {
+		t.Fatalf("代理地址解析错误: %v %v", u, err)
+	}
+	if u.User == nil || u.User.Username() != "user" {
+		t.Fatalf("代理账号丢失: %v", u.User)
+	}
+	if p, _ := u.User.Password(); p != "pass" {
+		t.Fatalf("代理密码丢失: %q", p)
+	}
+	if tr.TLSClientConfig == nil || tr.TLSClientConfig.MaxVersion != tls.VersionTLS12 ||
+		tr.TLSClientConfig.MinVersion != tls.VersionTLS12 {
+		t.Fatalf("未强制 TLS 1.2: %+v", tr.TLSClientConfig)
+	}
+
+	// 未配置时沿用环境变量代理，不强制 TLS 版本。
+	tr = newImageTransport(defaultSettings())
+	if tr.Proxy == nil {
+		t.Fatal("未配置代理时应保留 ProxyFromEnvironment")
+	}
+	if tr.TLSClientConfig != nil && tr.TLSClientConfig.MaxVersion != 0 {
+		t.Fatal("未开启 ForceTLS12 时不应限制 TLS 版本")
+	}
+}
+
+func TestProxySettingsMasking(t *testing.T) {
+	if err := validateProxyURL("socks5://user:pass@127.0.0.1:1080"); err != nil {
+		t.Fatalf("合法代理被拒绝: %v", err)
+	}
+	if err := validateProxyURL("ftp://127.0.0.1:21"); err == nil {
+		t.Fatal("非法代理协议应报错")
+	}
+	view := viewSettings(Settings{ProxyURL: "http://user:secret@127.0.0.1:8080"})
+	if !view.ProxyConfigured {
+		t.Fatal("ProxyConfigured 应为 true")
+	}
+	if strings.Contains(view.ProxyMasked, "secret") || !strings.Contains(view.ProxyMasked, "xxxx") {
+		t.Fatalf("代理密码未脱敏: %q", view.ProxyMasked)
+	}
+}
+
+// TestPhaseDurationRecorded 防止 defer 修改局部副本导致耗时恒为 0 的回归。
+func TestPhaseDurationRecorded(t *testing.T) {
+	pngBytes := encodePNG(t, true)
+	b64 := base64.StdEncoding.EncodeToString(pngBytes)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]string{{"b64_json": b64}},
+		})
+	}))
+	defer srv.Close()
+
+	cfg := &Config{TimeoutMs: 5000, OutputFormat: "png", Signature: SignatureConfig{Local: true}}
+	r := &runner{
+		cfg:       cfg,
+		settings:  defaultSettings(),
+		runID:     "r_test1234567890",
+		imageRoot: t.TempDir(),
+		http:      srv.Client(),
+	}
+	j := job{
+		target: model.TargetSecret{
+			Target: model.Target{ID: "t_mock", Name: "mock", BaseURL: srv.URL},
+			APIKey: "sk-test",
+		},
+		model: ModelSpec{Name: "mock-image", Kind: ModelKindImages, Size: "8x6"},
+	}
+	pr, _ := r.doGeneration(context.Background(), j, PhaseGenTransparent, "transparent")
+	if pr.Status != StatusPass {
+		t.Fatalf("状态 = %s, reason=%s", pr.Status, pr.Reason)
+	}
+	if pr.DurationMs < 10 {
+		t.Fatalf("耗时未记录: %dms", pr.DurationMs)
 	}
 }

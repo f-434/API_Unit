@@ -28,9 +28,13 @@ func (s *Server) handleImageDetectionConfigGet(w http.ResponseWriter, r *http.Re
 // Base URL 与 API Key。Key 加密落库，接口只返回掩码。
 func (s *Server) handleImageDetectionConfigSave(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		BaseURL  string `json:"baseUrl"`
-		APIKey   string `json:"apiKey"`
-		ClearKey bool   `json:"clearKey"`
+		BaseURL    string `json:"baseUrl"`
+		APIKey     string `json:"apiKey"`
+		ClearKey   bool   `json:"clearKey"`
+		ProxyURL   string `json:"proxyUrl"`
+		ClearProxy bool   `json:"clearProxy"`
+		// ForceTLS12 为 nil 时保持原值，避免只保存 API Key 时被意外重置。
+		ForceTLS12 *bool `json:"forceTls12"`
 	}
 	if err := decode(r, &req, 1<<20); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
@@ -52,6 +56,18 @@ func (s *Server) handleImageDetectionConfigSave(w http.ResponseWriter, r *http.R
 			return
 		}
 		existing.BaseURL = imagedetection.NormalizeBaseURL(raw)
+	}
+	if req.ClearProxy {
+		existing.ProxyURL = ""
+	} else if raw := strings.TrimSpace(req.ProxyURL); raw != "" {
+		if err := imagedetection.ValidateProxyURL(raw); err != nil {
+			apiError(w, http.StatusBadRequest, "代理地址无效: "+err.Error())
+			return
+		}
+		existing.ProxyURL = raw
+	}
+	if req.ForceTLS12 != nil {
+		existing.ForceTLS12 = *req.ForceTLS12
 	}
 	if err := imagedetection.SaveProvenanceSettings(s.store, existing); err != nil {
 		apiError(w, http.StatusInternalServerError, "保存配置失败: "+err.Error())
