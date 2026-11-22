@@ -128,6 +128,8 @@ go run ./cmd/mock-upstream -addr 127.0.0.1:9999
 
 Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀，保存时自动规范化。
 
+模型列表默认自动探测 `/v1/models` 与 `/v1beta/models`，并保留上游返回的全部模型（含 `gpt-image-*` 等生图模型）。若网关使用非标准路径，可在上游编辑页的「模型列表接口」中填写相对路径（如 `/api/models`）或完整 URL。
+
 ---
 
 ## 4. 环境变量

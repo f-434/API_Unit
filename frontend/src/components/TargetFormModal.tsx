@@ -28,8 +28,8 @@ export default function TargetFormModal({
     form.resetFields()
     if (target) {
       form.setFieldsValue({
-        name: target.name, baseUrl: target.baseUrl, protocol: target.protocol,
-        apiKey: '', clearKey: false,
+        name: target.name, baseUrl: target.baseUrl, modelsPath: target.modelsPath || '',
+        protocol: target.protocol, apiKey: '', clearKey: false,
       })
     } else {
       form.setFieldsValue({ protocol: 'auto' })
@@ -41,6 +41,7 @@ export default function TargetFormModal({
       const body: any = {
         name: values.name,
         baseUrl: values.baseUrl,
+        modelsPath: values.modelsPath || '',
         protocol: values.protocol,
         clearKey: values.clearKey,
       }
@@ -53,6 +54,8 @@ export default function TargetFormModal({
     onSuccess: (res: any) => {
       message.success(editing ? '已更新上游' : '已添加上游')
       qc.invalidateQueries({ queryKey: ['targets'] })
+      // 模型列表接口可能变化，清掉缓存，下次选择模型时重新获取。
+      qc.invalidateQueries({ queryKey: ['models'] })
       onSaved?.(res?.item)
       onClose()
     },
@@ -64,7 +67,14 @@ export default function TargetFormModal({
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await api.testTarget({ baseUrl: v.baseUrl, apiKey: v.apiKey || undefined, protocol: v.protocol })
+      const res = await api.testTarget({
+        baseUrl: v.baseUrl,
+        apiKey: v.apiKey || undefined,
+        protocol: v.protocol,
+        modelsPath: v.modelsPath || undefined,
+        // 编辑时未重新输入 Key，由后端沿用已保存的 Key。
+        targetId: target?.id,
+      })
       setTestResult(res)
       if (res.ok) message.success(`连接成功，发现 ${res.models?.length || 0} 个模型`)
       else message.error(res.error || '连接失败')
@@ -96,6 +106,13 @@ export default function TargetFormModal({
           extra="支持带或不带 /v1、/v1beta、/v1/chat/completions 后缀，保存时会自动规范化。"
         >
           <Input placeholder="https://api.example.com 或 http://127.0.0.1:3000" />
+        </Form.Item>
+        <Form.Item
+          name="modelsPath"
+          label="模型列表接口（可选）"
+          extra="留空时自动探测 /v1/models 与 /v1beta/models；可填 /v1/models 或完整 URL，用于网关不按标准路径提供模型列表的情况。"
+        >
+          <Input placeholder="留空自动探测，例如 /v1/models" />
         </Form.Item>
         <Form.Item name="protocol" label="协议">
           <Select options={[

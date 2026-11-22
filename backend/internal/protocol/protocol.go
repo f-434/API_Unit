@@ -22,6 +22,8 @@ type TargetInfo struct {
 	BaseURL  string
 	APIKey   string
 	Protocol model.Protocol
+	// ModelsPath 可选：自定义模型列表接口，支持相对路径或完整 URL。
+	ModelsPath string
 }
 
 // ContentPart represents one multimodal part. Type is one of text, image,

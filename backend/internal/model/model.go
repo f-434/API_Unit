@@ -54,9 +54,12 @@ func NewID(prefix string) string {
 
 // Target is a New API / OpenAI-compatible endpoint plus a stored credential.
 type Target struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	BaseURL      string   `json:"baseUrl"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	BaseURL string `json:"baseUrl"`
+	// ModelsPath 是自定义模型列表接口，可填相对路径（如 /v1/models）或完整 URL；
+	// 为空时按 Base URL 自动探测 OpenAI / Claude / Gemini 的默认模型接口。
+	ModelsPath   string   `json:"modelsPath,omitempty"`
 	Protocol     Protocol `json:"protocol"`
 	HasKey       bool     `json:"hasKey"`
 	KeyMasked    string   `json:"keyMasked"`

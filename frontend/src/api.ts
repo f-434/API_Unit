@@ -53,7 +53,7 @@ export const api = {
   createTarget: (body: any) => post<{ item: Target }>('/api/targets', body),
   updateTarget: (id: string, body: any) => put<{ item: Target }>(`/api/targets/${id}`, body),
   deleteTarget: (id: string) => del<{ ok: boolean }>(`/api/targets/${id}`),
-  testTarget: (body: { baseUrl: string; apiKey?: string; protocol?: string }) => post<any>('/api/targets/test', body),
+  testTarget: (body: { baseUrl: string; apiKey?: string; protocol?: string; modelsPath?: string; targetId?: string }) => post<any>('/api/targets/test', body),
   targetModels: (id: string) => post<any>(`/api/targets/${id}/models`),
 
   prompts: () => get<{ items: Prompt[] }>('/api/prompts'),

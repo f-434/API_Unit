@@ -49,6 +49,7 @@ func (s *Store) migrate() error {
 			base_url TEXT NOT NULL,
 			protocol TEXT NOT NULL DEFAULT 'auto',
 			api_key_enc TEXT NOT NULL DEFAULT '',
+			models_path TEXT NOT NULL DEFAULT '',
 			model_count INTEGER NOT NULL DEFAULT 0,
 			last_tested_at INTEGER NOT NULL DEFAULT 0,
 			created_at INTEGER NOT NULL,
@@ -208,13 +209,55 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	// 兼容旧数据库：CREATE TABLE IF NOT EXISTS 不会补充新列，这里显式补齐。
+	if err := ensureColumn(tx, "targets", "models_path",
+		`ALTER TABLE targets ADD COLUMN models_path TEXT NOT NULL DEFAULT ''`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate: %w", err)
+	}
 	return tx.Commit()
+}
+
+// ensureColumn 检查表中是否存在指定列，不存在则执行 ddl 添加。
+func ensureColumn(tx *sql.Tx, table, column, ddl string) error {
+	rows, err := tx.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	exists := false
+	for rows.Next() {
+		var (
+			cid          int
+			name, ctype  string
+			notNull, pk  int
+			defaultValue sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &defaultValue, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == column {
+			exists = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	_, err = tx.Exec(ddl)
+	return err
 }
 
 // ---------- targets ----------
 
 func (s *Store) ListTargets() ([]model.Target, error) {
-	rows, err := s.db.Query(`SELECT id,name,base_url,protocol,api_key_enc,model_count,last_tested_at,created_at,updated_at FROM targets ORDER BY updated_at DESC`)
+	rows, err := s.db.Query(`SELECT id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at FROM targets ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +266,7 @@ func (s *Store) ListTargets() ([]model.Target, error) {
 	for rows.Next() {
 		var t model.Target
 		var enc string
-		if err := rows.Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelsPath, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		t.HasKey = enc != ""
@@ -259,8 +302,8 @@ func (s *Store) TargetNames() (map[string]string, error) {
 func (s *Store) GetTarget(id string, withSecret bool) (*model.TargetSecret, error) {
 	var t model.TargetSecret
 	var enc string
-	err := s.db.QueryRow(`SELECT id,name,base_url,protocol,api_key_enc,model_count,last_tested_at,created_at,updated_at FROM targets WHERE id=?`, id).
-		Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt)
+	err := s.db.QueryRow(`SELECT id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at FROM targets WHERE id=?`, id).
+		Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelsPath, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -299,18 +342,18 @@ func (s *Store) SaveTarget(t *model.Target, apiKey string) error {
 		t.CreatedAt = now
 	}
 	if enc == "" {
-		_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,model_count,last_tested_at,created_at,updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?)
+		_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(id) DO UPDATE SET name=excluded.name, base_url=excluded.base_url, protocol=excluded.protocol,
-			model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
-			t.ID, t.Name, t.BaseURL, t.Protocol, "", t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
+			models_path=excluded.models_path, model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
+			t.ID, t.Name, t.BaseURL, t.Protocol, "", t.ModelsPath, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,model_count,last_tested_at,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, base_url=excluded.base_url, protocol=excluded.protocol,
-		api_key_enc=excluded.api_key_enc, model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
-		t.ID, t.Name, t.BaseURL, t.Protocol, enc, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
+		api_key_enc=excluded.api_key_enc, models_path=excluded.models_path, model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
+		t.ID, t.Name, t.BaseURL, t.Protocol, enc, t.ModelsPath, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
 	return err
 }
 

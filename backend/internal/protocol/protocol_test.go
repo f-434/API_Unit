@@ -325,6 +325,76 @@ func TestFetchModelsDoesNotRetryAuthFailure(t *testing.T) {
 	}
 }
 
+// 生图等非聊天模型也应出现在模型列表中，不能被静默过滤掉。
+func TestFetchModelsKeepsImageModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[
+			{"id":"gpt-image-2","owned_by":"openai"},
+			{"id":"gpt-4o","owned_by":"openai"},
+			{"id":"text-embedding-3-small","owned_by":"openai"}
+		]}`))
+	}))
+	defer srv.Close()
+
+	models, err := NewClientWithOptions(ClientOptions{DiscoverTimeout: 2 * time.Second}).
+		fetchModels(context.Background(), discoverAttempt{
+			protocol: model.ProtocolOpenAI,
+			label:    "test",
+			url:      srv.URL + "/v1/models",
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 3 {
+		t.Fatalf("unexpected models: %+v", models)
+	}
+}
+
+func TestDiscoverModelsCustomPath(t *testing.T) {
+	var gotPath atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath.Store(r.URL.Path)
+		if r.Header.Get("Authorization") != "Bearer sk-test" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":{"message":"bad key"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"custom-model"}]}`))
+	}))
+	defer srv.Close()
+
+	res, err := NewClientWithOptions(ClientOptions{DiscoverTimeout: 2 * time.Second}).DiscoverModels(
+		context.Background(), TargetInfo{
+			BaseURL: srv.URL, APIKey: "sk-test",
+			Protocol: model.ProtocolOpenAI, ModelsPath: "custom/models",
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath.Load() != "/custom/models" {
+		t.Fatalf("path=%v want /custom/models", gotPath.Load())
+	}
+	if res.Endpoint != srv.URL+"/custom/models" || len(res.Models) != 1 || res.Models[0].ID != "custom-model" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+}
+
+func TestResolveModelsURL(t *testing.T) {
+	cases := []struct{ root, raw, want string }{
+		{"https://api.example.com", "", ""},
+		{"https://api.example.com", "/v1/models", "https://api.example.com/v1/models"},
+		{"https://api.example.com/prefix", "v1/models", "https://api.example.com/prefix/v1/models"},
+		{"https://api.example.com", "https://other.example.com/models", "https://other.example.com/models"},
+	}
+	for _, c := range cases {
+		if got := resolveModelsURL(c.root, c.raw); got != c.want {
+			t.Fatalf("resolveModelsURL(%q,%q)=%q want %q", c.root, c.raw, got, c.want)
+		}
+	}
+}
+
 func TestDiscoveryNetworkHelpers(t *testing.T) {
 	tlsErr := errors.New(`Get "https://example.com/v1/models": net/http: TLS handshake timeout`)
 	if !isNetworkErr(tlsErr) {

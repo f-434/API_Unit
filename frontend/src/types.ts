@@ -11,6 +11,8 @@ export interface Target {
   id: string
   name: string
   baseUrl: string
+  /** 自定义模型列表接口；为空时自动探测。 */
+  modelsPath?: string
   protocol: Protocol
   hasKey: boolean
   keyMasked: string

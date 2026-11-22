@@ -37,6 +37,10 @@ type targetReq struct {
 	Protocol string  `json:"protocol"`
 	APIKey   *string `json:"apiKey"`
 	ClearKey bool    `json:"clearKey"`
+	// ModelsPath 可选：自定义模型列表接口，支持 /v1/models 或完整 URL。
+	ModelsPath *string `json:"modelsPath"`
+	// TargetID 仅用于“测试连接”：编辑已有上游且未重新输入 Key 时沿用已保存的 Key。
+	TargetID string `json:"targetId"`
 	// Models 是添加/编辑时“测试连接并获取模型”得到的模型列表。
 	// 仅用于记录模型数与最近检测时间，避免保存后还要再点一次“取模型”。
 	Models []string `json:"models"`
@@ -91,7 +95,28 @@ func validateTarget(req targetReq) (*model.Target, string, error) {
 	if req.APIKey != nil {
 		key = strings.TrimSpace(*req.APIKey)
 	}
-	return &model.Target{Name: name, BaseURL: base, Protocol: proto}, key, nil
+	return &model.Target{
+		Name: name, BaseURL: base, Protocol: proto,
+		ModelsPath: normalizeModelsPath(req.ModelsPath),
+	}, key, nil
+}
+
+// normalizeModelsPath 统一自定义模型列表接口的写法，空值表示自动探测。
+func normalizeModelsPath(raw *string) string {
+	if raw == nil {
+		return ""
+	}
+	p := strings.TrimSpace(*raw)
+	if p == "" {
+		return ""
+	}
+	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
+		return p
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return p
 }
 
 func (s *Server) handleTargetUpdate(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +139,11 @@ func (s *Server) handleTargetUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Protocol == "" {
 		req.Protocol = string(existing.Protocol)
+	}
+	// 未提交 modelsPath 字段时保持原值，提交空字符串表示恢复自动探测。
+	if req.ModelsPath == nil {
+		modelsPath := existing.ModelsPath
+		req.ModelsPath = &modelsPath
 	}
 	t, key, err := validateTarget(req)
 	if err != nil {
@@ -165,9 +195,16 @@ func (s *Server) handleTargetTest(w http.ResponseWriter, r *http.Request) {
 	if req.APIKey != nil {
 		key = strings.TrimSpace(*req.APIKey)
 	}
+	// 编辑已有上游时前端不会回填 Key，这里沿用已保存的 Key 进行测试，避免误报 401。
+	if key == "" && strings.TrimSpace(req.TargetID) != "" {
+		if saved, err := s.store.GetTarget(strings.TrimSpace(req.TargetID), true); err == nil {
+			key = saved.APIKey
+		}
+	}
 	start := time.Now()
 	res, err := s.client.DiscoverModels(r.Context(), protocol.TargetInfo{
 		BaseURL: base, APIKey: key, Protocol: modcommon.NormProtocol(req.Protocol),
+		ModelsPath: normalizeModelsPath(req.ModelsPath),
 	})
 	elapsed := time.Since(start).Milliseconds()
 	if err != nil {
@@ -202,6 +239,7 @@ func (s *Server) handleTargetModels(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.client.DiscoverModels(r.Context(), protocol.TargetInfo{
 		ID: t.ID, Name: t.Name, BaseURL: t.BaseURL, APIKey: t.APIKey, Protocol: t.Protocol,
+		ModelsPath: t.ModelsPath,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "warnings": warningsOf(res)})

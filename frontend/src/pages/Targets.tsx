@@ -112,7 +112,12 @@ export default function Targets() {
     },
     {
       title: 'Base URL', dataIndex: 'baseUrl',
-      render: (v: string) => <span className="small-mono">{v}</span>,
+      render: (v: string, r: Target) => (
+        <div>
+          <span className="small-mono">{v}</span>
+          {r.modelsPath && <div className="muted small-mono">模型接口：{r.modelsPath}</div>}
+        </div>
+      ),
     },
     {
       title: '协议', dataIndex: 'protocol', width: 110,

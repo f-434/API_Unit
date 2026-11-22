@@ -71,6 +71,16 @@ func (c *Client) DiscoverModels(ctx context.Context, t TargetInfo) (*DiscoverRes
 	default:
 		order = []discoverAttempt{openAI, claude, gemini}
 	}
+	// 用户配置了自定义模型列表接口时，只请求该地址，按协议顺序尝试不同的鉴权头。
+	if custom := resolveModelsURL(root, t.ModelsPath); custom != "" {
+		customOrder := make([]discoverAttempt, 0, len(order))
+		for _, at := range order {
+			at.url = custom
+			at.label = "模型列表接口（" + protocolAuthLabel(at.protocol) + "）"
+			customOrder = append(customOrder, at)
+		}
+		order = customOrder
+	}
 
 	res := &DiscoverResult{Models: []ModelInfo{}, Warnings: []string{}}
 	unreachable := map[string]bool{}
@@ -101,6 +111,9 @@ func (c *Client) DiscoverModels(ctx context.Context, t TargetInfo) (*DiscoverRes
 	msg := strings.Join(res.Warnings, "；")
 	if hint := networkHint(res.Warnings); hint != "" {
 		msg += "。" + hint
+	}
+	if strings.Contains(msg, "返回了空模型列表") {
+		msg += "。可在“编辑上游”中填写“模型列表接口”指定自定义地址"
 	}
 	return res, fmt.Errorf("未获取到模型列表：%s", msg)
 }
@@ -246,7 +259,7 @@ func (c *Client) fetchModels(ctx context.Context, at discoverAttempt) ([]ModelIn
 	out := make([]ModelInfo, 0)
 	add := func(id, owner string) {
 		id = strings.TrimSpace(strings.TrimPrefix(id, "models/"))
-		if id == "" || seen[id] || !looksLikeChatModel(id) {
+		if id == "" || seen[id] {
 			return
 		}
 		seen[id] = true
@@ -269,17 +282,29 @@ func (c *Client) fetchModels(ctx context.Context, at discoverAttempt) ([]ModelIn
 	return out, nil
 }
 
-func looksLikeChatModel(id string) bool {
-	l := strings.ToLower(id)
-	exclude := []string{
-		"embedding", "embed-", "-embed", "whisper", "tts", "text-to-speech", "speech-to-text",
-		"moderation", "rerank", "dall-e", "gpt-image", "imagen", "stable-diffusion",
-		"transcribe", "sora", "video", "audio", "realtime", "flux", "midjourney",
+// resolveModelsURL 把自定义模型列表接口解析为最终地址。
+// 支持完整 URL、/v1/models 这样的绝对路径，以及 v1/models 这样的相对路径。
+func resolveModelsURL(root, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
 	}
-	for _, x := range exclude {
-		if strings.Contains(l, x) {
-			return false
-		}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		return raw
 	}
-	return true
+	if !strings.HasPrefix(raw, "/") {
+		raw = "/" + raw
+	}
+	return strings.TrimRight(root, "/") + raw
+}
+
+func protocolAuthLabel(p model.Protocol) string {
+	switch p {
+	case model.ProtocolClaude:
+		return "Anthropic 鉴权"
+	case model.ProtocolGemini:
+		return "Gemini 鉴权"
+	default:
+		return "OpenAI 鉴权"
+	}
 }
