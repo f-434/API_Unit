@@ -92,6 +92,9 @@ type TargetSpec struct {
 	Label      string   `json:"label,omitempty"`
 	AuthMode   string   `json:"authMode,omitempty"`   // api-key (default) | bearer
 	APIVersion string   `json:"apiVersion,omitempty"` // Azure only
+	// APIStyle 选择 OpenAI 协议的来源探针接口：chat（默认）/ responses / auto。
+	// 仅影响来源探针；指纹、能力挑战、身份与一致性仍走 Chat Completions。
+	APIStyle string `json:"apiStyle,omitempty"`
 }
 
 type ChecksConfig struct {

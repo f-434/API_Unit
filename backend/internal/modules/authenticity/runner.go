@@ -322,6 +322,64 @@ func (r *modelRun) observe(res httpResult) {
 	}
 }
 
+// recordSourceProbe 保存来源探针的请求/响应，但不像 record 那样回写
+// lastModel/lastUsage 等状态，避免影响后续身份与一致性检查。
+func (r *modelRun) recordSourceProbe(res httpResult, caseID, caseName, apiStyle string) model.Item {
+	parsed := parseResponses(res.Body)
+	secrets := r.secretValues()
+	status := StatusFail
+	if res.statusOK() {
+		status = StatusPass
+	}
+	it := model.Item{
+		TargetID:      r.job.target.ID,
+		TargetName:    r.job.target.Name,
+		Model:         r.job.model,
+		ResponseModel: parsed.Model,
+		Protocol:      string(r.protocolName),
+		CaseID:        caseID,
+		CaseName:      caseName,
+		Category:      GroupSource,
+		Severity:      WeightSoft,
+		Repetition:    r.job.repetition,
+		Status:        res.Status,
+		OK:            res.statusOK(),
+		LatencyMs:     res.LatencyMs,
+		FinishReason:  parsed.Status,
+		OutputText:    parsed.OutputText,
+		OutputPreview: previewText(parsed.OutputText),
+		RequestJSON:   redactSecrets(res.RequestJSON, secrets),
+		ResponseJSON:  redactSecrets(res.ResponseJSON, secrets),
+		RequestID:     parsed.ID,
+		Attempts:      1,
+		Verdict:       status,
+		Meta: map[string]any{
+			"endpoint":     redactSecrets(res.Endpoint, secrets),
+			"httpStatus":   res.Status,
+			"checkStatus":  status,
+			"authenticity": true,
+			"repetition":   r.job.repetition,
+			"apiStyle":     apiStyle,
+			"sourceProbe":  true,
+		},
+	}
+	applyUsage(&it, parsed.Usage)
+	if headers := responseHeaderSnapshot(res.Header, secrets); len(headers) > 0 {
+		it.Meta["responseHeaders"] = headers
+	}
+	if parsed.Model != "" {
+		it.Meta["upstreamModel"] = parsed.Model
+	}
+	if res.Err != nil {
+		it.ErrorType = "network"
+		it.ErrorMessage = redactSecrets(res.Err.Error(), secrets)
+	} else if res.Status >= 400 {
+		it.ErrorType = "probe"
+		it.ErrorMessage = redactSecrets(truncateText(strings.TrimSpace(string(res.Body)), 500), secrets)
+	}
+	return r.sess.Record(it)
+}
+
 func (r *modelRun) record(res httpResult, caseID, caseName, category, output string, checks ...CheckReport) model.Item {
 	status := primaryStatus(checks)
 	secrets := r.secretValues()

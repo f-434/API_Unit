@@ -39,6 +39,7 @@ func (m *Module) Validate(raw json.RawMessage) (any, error) {
 		t.TargetID = strings.TrimSpace(t.TargetID)
 		t.Protocol = strings.ToLower(strings.TrimSpace(t.Protocol))
 		t.AuthMode = strings.ToLower(strings.TrimSpace(t.AuthMode))
+		t.APIStyle = strings.ToLower(strings.TrimSpace(t.APIStyle))
 		if t.TargetID == "" {
 			return nil, fmt.Errorf("第 %d 个目标缺少上游", i+1)
 		}
@@ -51,6 +52,14 @@ func (m *Module) Validate(raw json.RawMessage) (any, error) {
 		case "", "api-key", "bearer":
 		default:
 			return nil, fmt.Errorf("第 %d 个目标的认证方式无效: %s", i+1, t.AuthMode)
+		}
+		switch t.APIStyle {
+		case "", "chat", "responses", "auto":
+		default:
+			return nil, fmt.Errorf("第 %d 个目标的来源接口无效: %s", i+1, t.APIStyle)
+		}
+		if t.APIStyle == "" {
+			t.APIStyle = "chat"
 		}
 		seen := map[string]bool{}
 		models := make([]string, 0, len(t.Models))

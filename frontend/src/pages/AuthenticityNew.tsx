@@ -18,11 +18,12 @@ interface Row {
   models: string[]
   label: string
   protocol: string
+  apiStyle: string
   authMode: string
   apiVersion: string
 }
 
-const emptyRow = (): Row => ({ targetId: '', models: [], label: '', protocol: 'auto', authMode: 'api-key', apiVersion: '' })
+const emptyRow = (): Row => ({ targetId: '', models: [], label: '', protocol: 'auto', apiStyle: 'chat', authMode: 'api-key', apiVersion: '' })
 
 const defaultChecks = {
   fingerprint: true,
@@ -85,6 +86,7 @@ export default function AuthenticityNew() {
           targetId: r.targetId,
           models: r.models,
           protocol: r.protocol || 'auto',
+          apiStyle: r.apiStyle || 'chat',
           label: r.label || undefined,
           authMode: r.authMode || 'api-key',
           apiVersion: r.apiVersion || undefined,
@@ -136,7 +138,7 @@ export default function AuthenticityNew() {
           {rows.map((row, i) => (
             <div className="case-card" key={i}>
               <Row gutter={[10, 10]} align="middle">
-                <Col xs={24} lg={5}>
+                <Col xs={24} lg={4}>
                   <TargetSelect
                     value={row.targetId}
                     targets={targets}
@@ -147,20 +149,36 @@ export default function AuthenticityNew() {
                     }}
                   />
                 </Col>
-                <Col xs={24} lg={8}>
+                <Col xs={24} lg={6}>
                   <ModelMultiSelect
                     targetId={row.targetId}
                     value={row.models}
                     onChange={v => setRow(i, { models: v || [] })}
                   />
                 </Col>
-                <Col xs={12} lg={3}>
+                <Col xs={12} lg={2}>
                   <Select
                     value={row.protocol}
                     onChange={v => setRow(i, { protocol: v })}
                     options={['auto', 'openai', 'claude', 'gemini'].map(p => ({ value: p, label: p === 'auto' ? '自动' : p }))}
                     style={{ width: '100%' }}
                   />
+                </Col>
+                <Col xs={12} lg={3}>
+                  <Tooltip title="来源探针接口（仅 OpenAI 生效；能力挑战仍走 Chat Completions）">
+                    <Select
+                      value={row.apiStyle}
+                      onChange={v => setRow(i, { apiStyle: v })}
+                      options={[
+                        { value: 'chat', label: 'Chat 接口' },
+                        { value: 'responses', label: 'Responses' },
+                        { value: 'auto', label: '自动' },
+                      ]}
+                      disabled={row.protocol === 'claude' || row.protocol === 'gemini'}
+                      aria-label="来源探针接口"
+                      style={{ width: '100%' }}
+                    />
+                  </Tooltip>
                 </Col>
                 <Col xs={12} lg={3}>
                   <Select
@@ -170,7 +188,7 @@ export default function AuthenticityNew() {
                     style={{ width: '100%' }}
                   />
                 </Col>
-                <Col xs={16} lg={4}>
+                <Col xs={12} lg={3}>
                   <Input value={row.label} onChange={e => setRow(i, { label: e.target.value })} placeholder="标签（可选）" />
                 </Col>
                 <Col flex="auto" style={{ textAlign: 'right' }}>

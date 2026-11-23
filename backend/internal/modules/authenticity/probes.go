@@ -252,7 +252,13 @@ var gatewayHeaderKeys = []string{
 }
 
 func (r *modelRun) runSource() {
-	if len(r.sourceSamples) == 0 {
+	samples := r.sourceSamples
+	if sample, ok := r.runSourceProbe(); ok {
+		// 显式选择 Responses 时，来源只使用该接口的响应，避免被
+		// Chat Completions 样本“补证据”而掩盖接口差异。
+		samples = []sourceSample{sample}
+	}
+	if len(samples) == 0 {
 		r.add(CheckReport{
 			ID: "P2-1", Group: GroupSource, Name: "响应来源识别",
 			Status: StatusNA, Weight: WeightSoft, CaseID: r.lastCaseID,
@@ -262,7 +268,7 @@ func (r *modelRun) runSource() {
 		r.add(gatewayCheck(r.lastHeader, "", r.lastCaseID))
 		return
 	}
-	source, sourceCaseID := detectSource(r.protocolName, r.sourceSamples, r.endpoint)
+	source, sourceCaseID := detectSource(r.protocolName, samples, r.endpoint)
 	r.source = source
 	evidence := source.Name + " / 置信度 " + source.Confidence
 	if source.Gateway != "" {
@@ -277,6 +283,71 @@ func (r *modelRun) runSource() {
 	})
 	r.add(endpointConsistencyCheck(r.endpoint, source, sourceCaseID))
 	r.add(gatewayCheck(r.lastHeader, source.Gateway, sourceCaseID))
+}
+
+// sourceAPIStyle 决定 OpenAI 协议的来源探针使用哪个接口。
+//
+//	chat      - 仅使用现有 Chat Completions 成功响应（默认，兼容旧行为）
+//	responses - 额外发送一次最小 Responses 请求作为来源证据
+//	auto      - 端点明确指向 OpenAI 官方或 Azure 时用 Responses，否则用 Chat
+func sourceAPIStyle(proto model.Protocol, endpoint, style string) string {
+	if proto != model.ProtocolOpenAI {
+		return "chat"
+	}
+	switch strings.ToLower(strings.TrimSpace(style)) {
+	case "responses":
+		return "responses"
+	case "auto":
+		switch endpointSourceHint(endpoint) {
+		case "OpenAI 官方", "Microsoft Azure":
+			return "responses"
+		}
+	}
+	return "chat"
+}
+
+// runSourceProbe 发送一次最小的 OpenAI Responses 请求。该请求只用于来源
+// 判断，不会把 lastModel/lastUsage 等状态写回，避免影响后续身份与一致性检查。
+func (r *modelRun) runSourceProbe() (sourceSample, bool) {
+	if sourceAPIStyle(r.protocolName, r.endpoint, r.job.spec.APIStyle) != "responses" {
+		return sourceSample{}, false
+	}
+	endpoint, err := resolveEndpoint(r.job.target, r.job.spec, model.ProtocolOpenAI, r.job.model, "responses")
+	if err != nil {
+		r.add(CheckReport{
+			ID: "P2-0", Group: GroupSource, Name: "来源探针接口",
+			Status: StatusWarn, Weight: WeightSoft, CaseID: r.lastCaseID,
+			Evidence: "Responses 端点解析失败：" + err.Error(),
+		})
+		return sourceSample{}, false
+	}
+	headers := authHeaders(r.job.target, r.job.spec, model.ProtocolOpenAI, endpoint)
+	body := map[string]any{
+		"model":             r.job.model,
+		"input":             "ping",
+		"max_output_tokens": 16,
+	}
+	res := r.postWithRetry(r.ctx, endpoint, headers, body, r.timeout())
+	const caseID = "source.responses"
+	r.recordSourceProbe(res, caseID, "来源探针：OpenAI Responses", "responses")
+
+	status := StatusPass
+	evidence := fmt.Sprintf("Responses 来源探针 HTTP %d", res.Status)
+	if res.Err != nil {
+		status = StatusWarn
+		evidence = "Responses 来源探针网络错误：" + truncateText(res.Err.Error(), 300)
+	} else if !res.statusOK() {
+		status = StatusWarn
+		evidence = fmt.Sprintf("Responses 返回 HTTP %d，已回退 Chat Completions 来源证据", res.Status)
+	}
+	r.add(CheckReport{
+		ID: "P2-0", Group: GroupSource, Name: "来源探针接口",
+		Status: status, Weight: WeightSoft, Evidence: evidence, CaseID: caseID,
+	})
+	if !res.statusOK() {
+		return sourceSample{}, false
+	}
+	return sourceSample{Header: res.Header, Body: res.Body, CaseID: caseID}, true
 }
 
 // detectSource 按 model-proof 的口径识别“上游平台”，中转网关只作为单独

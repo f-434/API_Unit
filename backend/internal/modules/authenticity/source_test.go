@@ -15,6 +15,103 @@ func srcSample(header http.Header, body, caseID string) sourceSample {
 	return sourceSample{Header: header, Body: []byte(body), CaseID: caseID}
 }
 
+func TestSourceAPIStyle(t *testing.T) {
+	tests := []struct {
+		name     string
+		proto    model.Protocol
+		endpoint string
+		style    string
+		want     string
+	}{
+		{"default chat", model.ProtocolOpenAI, "https://relay.example.com", "", "chat"},
+		{"explicit responses", model.ProtocolOpenAI, "https://relay.example.com", "responses", "responses"},
+		{"auto official", model.ProtocolOpenAI, "https://api.openai.com/v1/chat/completions", "auto", "responses"},
+		{"auto azure", model.ProtocolOpenAI, "https://res.openai.azure.com/openai/deployments/x/chat/completions", "auto", "responses"},
+		{"auto custom", model.ProtocolOpenAI, "https://relay.example.com", "auto", "chat"},
+		{"non-openai ignores responses", model.ProtocolClaude, "https://api.anthropic.com/v1/messages", "responses", "chat"},
+	}
+	for _, tc := range tests {
+		if got := sourceAPIStyle(tc.proto, tc.endpoint, tc.style); got != tc.want {
+			t.Fatalf("%s: sourceAPIStyle = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestSourceProbeResponses 模拟 Chat Completions 正常、Responses 返回
+// Azure 内容过滤字段：来源应只采用 Responses 探针，并保存可回溯的探针条目。
+func TestSourceProbeResponses(t *testing.T) {
+	var sawResponses bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/chat/completions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "chatcmpl-x", "object": "chat.completion", "model": "gpt-6-luna",
+				"choices": []any{map[string]any{
+					"message":       map[string]any{"role": "assistant", "content": "pong"},
+					"finish_reason": "stop",
+				}},
+				"usage": map[string]any{"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6},
+			})
+		case "/v1/responses":
+			sawResponses = true
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "resp_probe", "object": "response", "model": "gpt-6-luna", "status": "completed",
+				"content_filters": []any{map[string]any{"blocked": false}},
+				"usage":           map[string]any{"input_tokens": 3, "output_tokens": 1, "total_tokens": 4},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	st, targetID := testStore(t)
+	if err := st.SaveTarget(&model.Target{ID: targetID, Name: "relay", BaseURL: srv.URL, Protocol: model.ProtocolOpenAI}, "sk-test"); err != nil {
+		t.Fatal(err)
+	}
+	report, runID := runModuleWithID(t, st, targetID, Config{
+		Targets: []TargetSpec{{
+			TargetID: targetID, Models: []string{"gpt-6-luna"},
+			Protocol: "openai", APIStyle: "responses",
+		}},
+		Checks: ChecksConfig{Source: true},
+	})
+	if !sawResponses {
+		t.Fatal("expected Responses source probe")
+	}
+	r := report.Models[0]
+	if r.Source.Name != "Microsoft Azure" || r.Source.Confidence != "medium" {
+		t.Fatalf("source=%+v, want Azure from Responses content_filters", r.Source)
+	}
+	var probeCheck *CheckReport
+	for i := range r.Checks {
+		if r.Checks[i].ID == "P2-0" {
+			probeCheck = &r.Checks[i]
+		}
+	}
+	if probeCheck == nil || probeCheck.Status != StatusPass || probeCheck.CaseID != "source.responses" {
+		t.Fatalf("P2-0=%+v, want pass with source.responses", probeCheck)
+	}
+	items, _, err := st.ListItems(store.ItemFilter{RunID: runID, Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var probeItem *model.Item
+	for i := range items {
+		if items[i].CaseID == "source.responses" {
+			probeItem = &items[i]
+			break
+		}
+	}
+	if probeItem == nil {
+		t.Fatal("missing source.responses item")
+	}
+	if probeItem.Meta["sourceProbe"] != true || probeItem.Meta["apiStyle"] != "responses" {
+		t.Fatalf("probe meta=%+v, want sourceProbe/apiStyle", probeItem.Meta)
+	}
+}
+
 func TestDetectSourceGeminiAIStudioFallback(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Oneapi-Request-Id", "gw-1")
