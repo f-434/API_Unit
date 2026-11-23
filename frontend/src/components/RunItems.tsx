@@ -7,7 +7,7 @@ import { EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import type { Item, ItemDetail } from '../types'
 import {
-  errorTypeLabel, fmtCost, fmtInt, fmtMs, fmtPct, fmtTime, tokenSourceLabel, truncate, verdictColor, verdictLabel,
+  errorTypeLabel, fmtCost, fmtInt, fmtMs, fmtTime, tokenSourceLabel, truncate, verdictColor, verdictLabel,
 } from '../format'
 import { CopyButton, EmptyPanel, JsonBlock, ResponseModelCell, VerdictTag } from './common'
 
@@ -224,7 +224,7 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         </Tooltip>
       ),
     },
-    { title: '', width: 48, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openDetail(it)} /> },
+    { title: '', width: 48, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} title="查看详情" onClick={() => openDetail(it)} /> },
   ]
 
   return (
@@ -255,7 +255,6 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         }}
         onRow={it => ({ onDoubleClick: () => openDetail(it), style: { cursor: 'pointer' } })}
       />
-      <Alert style={{ marginTop: 10 }} type="info" showIcon message="双击任意行查看请求/响应正文、裁判理由与检查证据。" />
       <ItemDrawer runId={runId} itemId={detailId} open={detailOpen} onClose={() => setDetailOpen(false)} />
     </div>
   )

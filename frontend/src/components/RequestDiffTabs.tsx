@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
-  Alert, Button, Col, Empty, Input, Row, Select, Segmented, Space, Table, Tag, Tooltip, Typography, message,
+  Alert, Button, Col, Input, Row, Select, Segmented, Space, Table, Tag, Tooltip, Typography, message,
 } from 'antd'
 import { DiffOutlined, DownloadOutlined, EyeOutlined, HistoryOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, download } from '../api'
-import type { DiffChange, DiffResponse, RequestDiffReport, Snapshot } from '../types'
+import type { DiffResponse, RequestDiffReport, Snapshot } from '../types'
 import { categoryLabel, fmtBytes, fmtTime, opColor, opLabel, severityColor, severityLabel, truncate } from '../format'
 import { CopyButton, EmptyPanel, JsonBlock, Kpi, SeverityTag } from './common'
 import { BarChart } from './charts'
@@ -51,9 +51,6 @@ export function SnapshotTable({ runId, report, polling = false }: { runId: strin
         <Tag color="blue">{data?.total ?? 0} 份快照（当前任务）</Tag>
         {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
-      <div className="muted" style={{ marginBottom: 8 }}>
-        仅显示当前任务的请求快照；跨任务对比请到「差异对比」加载历史快照。
-      </div>
       <Table
         rowKey="id"
         size="small"
@@ -78,7 +75,7 @@ export function SnapshotTable({ runId, report, polling = false }: { runId: strin
             title: '线索', dataIndex: 'findings', width: 80,
             render: (v: any[]) => v?.length ? <Tag color="red">{v.length}</Tag> : <Tag color="green">0</Tag>,
           },
-          { title: '', width: 50, render: (_: any, r: Snapshot) => <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => { setSnapshotId(r.id); setOpen(true) }} /> },
+          { title: '', width: 50, render: (_: any, r: Snapshot) => <Button size="small" type="text" icon={<EyeOutlined />} title="查看快照" onClick={() => { setSnapshotId(r.id); setOpen(true) }} /> },
         ]}
         onRow={r => ({ onDoubleClick: () => { setSnapshotId(r.id); setOpen(true) }, style: { cursor: 'pointer' } })}
       />
@@ -116,13 +113,6 @@ export function FindingsTable({ runId, polling = false }: { runId: string; polli
 
   return (
     <div>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="隐藏指令扫描"
-        description="扫描 System Prompt、User Prompt、历史对话、Tools 描述、Function Response、多模态 URL/文本与其他额外字段，识别忽略指令、角色覆盖、越权泄露、零宽字符、双向控制符、HTML 注释、base64 长文本等线索。仅展示最近 500 份快照。"
-      />
       <Space wrap style={{ marginBottom: 12 }}>
         <Select allowClear placeholder="级别" value={severity} onChange={setSeverity} style={{ width: 120 }} options={['high', 'medium', 'low'].map(v => ({ value: v, label: severityLabel(v) }))} />
         <Select allowClear placeholder="分类" value={category} onChange={setCategory} style={{ width: 170 }} options={categories.map(c => ({ value: c, label: categoryLabel(c) }))} />
@@ -145,7 +135,7 @@ export function FindingsTable({ runId, polling = false }: { runId: string; polli
           { title: '证据', dataIndex: 'snippet', render: (v: string) => <span className="small-mono">{truncate(v, 180)}</span> },
           { title: '用例', width: 150, render: (_: any, r) => r.snapshot.caseName },
           { title: '目标 / 模型', width: 200, render: (_: any, r) => <span>{r.snapshot.targetLabel}<div className="muted small-mono">{r.snapshot.model}</div></span> },
-          { title: '', width: 50, render: (_: any, r) => <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => { setSnapshotId(r.snapshot.id); setOpen(true) }} /> },
+          { title: '', width: 50, render: (_: any, r) => <Button size="small" type="text" icon={<EyeOutlined />} title="查看快照" onClick={() => { setSnapshotId(r.snapshot.id); setOpen(true) }} /> },
         ]}
       />
       <SnapshotDrawer id={snapshotId} open={open} onClose={() => setOpen(false)} />
@@ -155,10 +145,6 @@ export function FindingsTable({ runId, polling = false }: { runId: string; polli
 
 function parseMaybe(text: string) {
   try { return JSON.parse(text || '{}') } catch { return null }
-}
-
-function changeSummary(changes: DiffChange[], op: string) {
-  return changes.filter(c => c.op === op)
 }
 
 export function DiffPanel({ runId, polling = false }: { runId: string; polling?: boolean }) {
@@ -193,8 +179,6 @@ export function DiffPanel({ runId, polling = false }: { runId: string; polling?:
     return Array.from(map.values()).sort((a, b) => a.id - b.id)
   }, [localSnapshots, historySnapshots])
   const options = all.map(s => ({ value: s.id, label: snapshotLabel(s, runId) }))
-  const localIds = useMemo(() => new Set(localSnapshots.map(s => s.id)), [localSnapshots])
-  const historyOnly = useMemo(() => all.filter(s => !localIds.has(s.id)), [all, localIds])
 
   const loadHistory = async () => {
     setHistoryLoading(true)
@@ -238,34 +222,16 @@ export function DiffPanel({ runId, polling = false }: { runId: string; polling?:
 
   return (
     <div>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="左右 JSON 对比"
-        description={(
-          <div>
-            <div>wire 模式对比协议原生请求（如 Gemini 的 systemInstruction / contents / tools / generationConfig / cachedContent / safetySettings）；canonical 模式对比协议无关的逻辑请求，适合跨协议比较。</div>
-            <div className="muted" style={{ marginTop: 4 }}>
-              当前任务 {localSnapshots.length} 份快照。加载历史只用于跨任务对比，不会改变当前任务的请求数。
-            </div>
-          </div>
-        )}
-        action={(
+      <div className="panel" style={{ marginBottom: 12 }}>
+        <div className="panel-title" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span>快照对比</span>
           <Space>
             {historySnapshots.length > 0 && (
               <Button size="small" onClick={() => setHistorySnapshots([])}>清除历史快照</Button>
             )}
             <Button size="small" icon={<HistoryOutlined />} loading={historyLoading} onClick={loadHistory}>加载历史快照</Button>
           </Space>
-        )}
-      />
-      {historyOnly.length > 0 && (
-        <div className="muted" style={{ marginBottom: 8 }}>
-          下拉框中已合并其他任务的历史快照 {historyOnly.length} 份；带 <Tag color="orange">历史</Tag> 标记的条目不来自当前任务。
         </div>
-      )}
-      <div className="panel" style={{ marginBottom: 12 }}>
         <Row gutter={[12, 10]} align="middle">
           <Col xs={24} lg={8}>
             <div className="form-hint">左侧快照</div>
@@ -295,7 +261,7 @@ export function DiffPanel({ runId, polling = false }: { runId: string; polling?:
       </div>
 
       {!result ? (
-        <EmptyPanel text={options.length ? '选择两份快照后点击“开始对比”。' : '当前运行还没有快照。'} />
+        <EmptyPanel text={options.length ? '选择两份快照后开始对比' : '当前运行还没有快照'} />
       ) : (
         <>
           <div className="kpi-grid" style={{ marginBottom: 12 }}>

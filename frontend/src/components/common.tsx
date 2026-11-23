@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Button, Empty, Space, Tag, Tooltip, Typography, message } from 'antd'
+import { Button, Collapse, Empty, Space, Tag, Tooltip, Typography, message } from 'antd'
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons'
 import type { Kind, TargetRef } from '../types'
 import {
@@ -7,15 +7,39 @@ import {
   statusLabel, verdictColor, verdictLabel,
 } from '../format'
 
-export function PageHeader({ title, subtitle, extra }: { title: React.ReactNode; subtitle?: React.ReactNode; extra?: React.ReactNode }) {
+export function PageHeader({ title, extra }: { title: React.ReactNode; extra?: React.ReactNode }) {
   return (
     <div className="page-header">
-      <div>
-        <h1>{title}</h1>
-        {subtitle && <p>{subtitle}</p>}
-      </div>
+      <h1>{title}</h1>
       {extra && <Space wrap>{extra}</Space>}
     </div>
+  )
+}
+
+/** 页脚一行摘要：替代一排只读 Tag，保持可扫描且不占视觉重量。 */
+export function SummaryLine({ items }: { items: { label: string; value: React.ReactNode }[] }) {
+  return (
+    <div className="summary-line">
+      {items.map(it => (
+        <span key={it.label} className="summary-item">{it.label} <b>{it.value}</b></span>
+      ))}
+    </div>
+  )
+}
+
+/** 判定口径等长文本默认折叠，需要时再展开，避免每个页面常驻说明块。 */
+export function NotesCollapse({ notes, title = '判定口径' }: { notes?: string[]; title?: string }) {
+  if (!notes?.length) return null
+  return (
+    <Collapse
+      ghost
+      className="notes-collapse"
+      items={[{
+        key: 'notes',
+        label: title,
+        children: <ul className="notes-list">{notes.map((n, i) => <li key={i}>{n}</li>)}</ul>,
+      }]}
+    />
   )
 }
 

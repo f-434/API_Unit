@@ -72,7 +72,7 @@ export default function Settings() {
 
   return (
     <>
-      <PageHeader title="设置与运行信息" subtitle="系统完全独立运行，只通过 HTTP 访问 New API / OpenAI 兼容接口，不修改或侵入 New API 源码。" />
+      <PageHeader title="设置" />
       <div className="panel">
         <div className="panel-title">运行信息</div>
         <Descriptions size="small" column={2} bordered>
@@ -89,13 +89,6 @@ export default function Settings() {
 
       <div className="panel">
         <div className="panel-title">本地分词器</div>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="Token 预估与审计口径"
-          description="OpenAI 模型使用内置 tiktoken（o200k_base / cl100k_base，离线可用）；Gemini 使用官方 Gemma SentencePiece 模型（首次下载后离线可用）；Claude 暂不提供本地分词器，使用 usage 或启发式估算。实际计费仍以上游返回的 usage 为准。"
-        />
         {offline && (
           <Alert
             type="warning"
@@ -140,13 +133,9 @@ export default function Settings() {
           </Popconfirm>
           <Button icon={<ReloadOutlined />} loading={metaFetching} onClick={refresh}>刷新</Button>
         </Space>
-        <div className="muted" style={{ marginBottom: 10 }}>
-          下载会依次尝试 CDN / GitHub 官方源 / 代理镜像，并校验 SHA-256；网络较慢时可能需要几分钟，请保持页面打开。
-          「重新加载本地分词器」只从磁盘解析现有模型文件，不触发下载，适合替换文件后或状态显示未加载时使用。
-        </div>
         {tokenizerDir && (
-          <div className="muted" style={{ marginBottom: 10, wordBreak: 'break-all' }}>
-            分词器目录：<span className="small-mono">{tokenizerDir}</span>
+          <div className="field-label" style={{ marginBottom: 10, wordBreak: 'break-all' }}>
+            分词器目录 <span className="small-mono">{tokenizerDir}</span>
           </div>
         )}
         <Table
@@ -175,7 +164,6 @@ export default function Settings() {
 
       <div className="panel">
         <div className="panel-title">数据清理</div>
-        <p className="muted">按完成时间删除旧测试记录（包含结果明细与请求快照）。运行中的测试不会被删除。</p>
         <Space>
           <span>保留最近</span>
           <InputNumber min={1} max={3650} value={days} onChange={v => setDays(Number(v || 30))} />
@@ -184,15 +172,6 @@ export default function Settings() {
         </Space>
       </div>
 
-      <div className="panel">
-        <div className="panel-title">安全与边界</div>
-        <ul className="muted" style={{ margin: 0, paddingLeft: 18 }}>
-          <li>API Key 使用本机随机密钥进行 AES-256-GCM 加密存储，接口仅返回掩码；不会写入 localStorage。</li>
-          <li>请求快照记录的是本工具实际发出的请求正文与 SHA-256；若中转层在服务端改写请求，需要结合 New API 日志核对。</li>
-          <li>Gemini 分词器文件首次运行时会从 Google 官方仓库下载并校验 SHA-256；离线环境可预先把模型文件放入分词器目录。</li>
-          <li>默认只监听 127.0.0.1；如需暴露到网络，请设置 AUTH_PASSWORD 并置于可信反向代理之后。</li>
-        </ul>
-      </div>
     </>
   )
 }

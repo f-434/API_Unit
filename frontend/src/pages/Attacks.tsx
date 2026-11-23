@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, AutoComplete, Button, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Switch, Table, Tag, message,
+  AutoComplete, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, message,
 } from 'antd'
 import { DeleteOutlined, DownloadOutlined, EditOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -108,10 +108,10 @@ export default function Attacks() {
       title: '操作', width: 100,
       render: (_: any, r: Attack) => (
         <Space size={2}>
-          <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Button size="small" type="text" icon={<EditOutlined />} title="编辑用例" onClick={() => openEdit(r)} />
           {!r.builtin && (
             <Popconfirm title="删除该用例？" onConfirm={() => del.mutate(r.id)}>
-              <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+              <Button size="small" type="text" danger icon={<DeleteOutlined />} title="删除用例" />
             </Popconfirm>
           )}
         </Space>
@@ -123,7 +123,6 @@ export default function Attacks() {
     <>
       <PageHeader
         title="攻击用例"
-        subtitle="内置规则类用例使用 canary 泄露、关键词/正则与拒绝话术判定；越狱类用例可在混合模式下交给 LLM 裁判。"
         extra={[
           <Input key="q" allowClear prefix={<SearchOutlined />} placeholder="搜索用例" value={q} onChange={e => setQ(e.target.value)} style={{ width: 200 }} />,
           <Select key="c" allowClear placeholder="分类" value={cat} onChange={setCat} options={categories.map(c => ({ value: c.id, label: c.label }))} style={{ width: 150 }} />,
@@ -135,13 +134,6 @@ export default function Attacks() {
           </Popconfirm>,
           <Button key="a" type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建用例</Button>,
         ]}
-      />
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 14 }}
-        message="安全测试说明"
-        description="所有内置用例只使用无害标记（如 canary、OVERRIDE-OK），用于检测模型是否执行越权指令或泄露系统提示；不包含可用于真实攻击的内容。"
       />
       <div className="panel">
         <Table rowKey="id" loading={isLoading} dataSource={filtered} columns={columns as any} pagination={{ pageSize: 20, showSizeChanger: true }} />
@@ -161,21 +153,24 @@ export default function Attacks() {
           <Form.Item name="systemPrompt" label="System Prompt"><Input.TextArea rows={4} className="code-input" /></Form.Item>
           <Form.Item name="prompt" label="攻击提示词" rules={[{ required: true }]}><Input.TextArea rows={5} className="code-input" /></Form.Item>
           <Space style={{ width: '100%' }} align="start">
-            <Form.Item name="canary" label="Canary 标记" style={{ width: 320 }} extra="系统提示中不要泄露该值；命中即判定攻击成功。"><Input /></Form.Item>
-            <Form.Item name="requireJudge" label="规则无法判定时交给 LLM 裁判" valuePropName="checked" style={{ paddingTop: 30 }}>
+            <Form.Item name="canary" label="Canary 标记" style={{ width: 320 }}><Input placeholder="命中即判定攻击成功" /></Form.Item>
+            <Form.Item name="requireJudge" label="交给 LLM 裁判" valuePropName="checked" style={{ paddingTop: 30 }}>
               <Switch />
             </Form.Item>
           </Space>
-          <Form.Item name="checks" label="确定性检查（JSON 数组）" extra='示例：[{"kind":"contains","value":"OVERRIDE-OK"}]，kind 支持 canary_leak / contains / regex / refusal'>
-            <Input.TextArea rows={5} className="code-input" />
+          <Form.Item name="checks" label="确定性检查（JSON 数组）">
+            <Input.TextArea
+              rows={5}
+              className="code-input"
+              placeholder={'[{"kind":"contains","value":"OVERRIDE-OK"}]\n// kind: canary_leak / contains / regex / refusal'}
+            />
           </Form.Item>
           <Form.Item name="rubric" label="裁判判定要点（可选）"><Input.TextArea rows={3} /></Form.Item>
         </Form>
       </Modal>
 
       <Modal open={importOpen} title="导入攻击用例" onCancel={() => setImportOpen(false)} onOk={() => doImport.mutate()} confirmLoading={doImport.isPending} width={760}>
-        <p className="muted">粘贴 JSON 数组或包含 attacks 数组的对象。</p>
-        <Input.TextArea rows={14} className="code-input" value={importText} onChange={e => setImportText(e.target.value)} />
+        <Input.TextArea rows={14} className="code-input" value={importText} onChange={e => setImportText(e.target.value)} placeholder='[{"name":"示例","category":"instruction_override","prompt":"..."}]' />
       </Modal>
     </>
   )

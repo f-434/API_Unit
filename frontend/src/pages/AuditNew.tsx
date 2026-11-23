@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Col, Form, InputNumber, Input, Row, Select, Space, Spin, Switch, Tag, Tooltip, message,
+  Button, Col, Form, InputNumber, Input, Row, Select, Space, Spin, Switch, Tag, Tooltip, message,
 } from 'antd'
 import { CheckOutlined, EditOutlined, PlayCircleOutlined, UndoOutlined } from '@ant-design/icons'
 import { api } from '../api'
-import { PageHeader } from '../components/common'
+import { PageHeader, SummaryLine } from '../components/common'
 import { TargetRowsEditor, type TargetRow } from '../components/TargetModel'
 import type { Prompt } from '../types'
 import { fmtInt } from '../format'
@@ -223,10 +223,7 @@ export default function AuditNew() {
 
   return (
     <>
-      <PageHeader
-        title="新建 Token 审计"
-        subtitle="同一提示词发送到多个上游/模型，对比上报的输入 Token、重复波动与本地分词器偏差，定位中转层额外注入或计费异常。"
-      />
+      <PageHeader title="新建 Token 审计" />
       <Form
         form={form}
         layout="vertical"
@@ -243,21 +240,12 @@ export default function AuditNew() {
           <Form.Item name="targets" rules={[{ required: true }]}>
             <TargetRowsEditor tokenizers={meta?.tokenizerStrategies || []} showTokenizer />
           </Form.Item>
-          <Alert
-            type="info"
-            showIcon
-            message="本地 Token 偏差是判断“注入”的主证据"
-            description="OpenAI 模型使用 tiktoken，Gemini 使用 Gemma SentencePiece；跨模型家族（GPT vs Gemini）的 Token 差异是正常现象，应优先看 OverheadPct。Claude 暂用启发式估算，仅作参考。"
-          />
         </div>
 
         <div className="panel">
           <div className="panel-title" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <span>2. 审计提示词</span>
             <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
-              {!selectedPrompts.length && (
-                <Tag style={{ fontWeight: 400, marginInlineEnd: 0 }}>选择提示词后自动估算</Tag>
-              )}
               {selectedPrompts.map(p => {
                 const est = estimate.perPrompt.find(x => x.id === p.id)
                 const tone = !validTargets.length ? 'default' : estimating ? 'default' : est?.allFailed ? 'red' : est?.missing ? 'orange' : 'blue'
@@ -273,7 +261,6 @@ export default function AuditNew() {
                         {t.label}（{t.model}）：{t.error ? `估算失败：${t.error}` : t.missing ? '未估算' : `${fmtInt(t.tokens)} tok`}
                       </div>
                     ))}
-                    <div className="muted">按当前全部有效目标累加；在线计数策略会改用本地估算。</div>
                   </div>
                 )
                 return (
@@ -287,15 +274,12 @@ export default function AuditNew() {
               })}
             </Space>
           </div>
-          <Form.Item name="promptIds" label="选择提示词（建议覆盖短文本、长文本、中英混合）" rules={[{ required: true, message: '请选择提示词' }]}>
+          <Form.Item name="promptIds" label="审计提示词" rules={[{ required: true, message: '请选择提示词' }]}>
             <Select mode="multiple" allowClear placeholder="从提示词库选择" options={(prompts?.items || []).map(p => ({ value: p.id, label: `${p.name}（${p.content.length} 字）` }))} />
           </Form.Item>
 
           {selectedPrompts.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div className="muted" style={{ marginTop: -6, marginBottom: 8, fontSize: 12 }}>
-                可直接编辑选中提示词；保存会写回提示词库。启动审计前会自动保存未保存的修改。
-              </div>
               {selectedPrompts.map(p => {
                 const content = drafts[p.id] ?? p.content
                 const dirty = content !== p.content
@@ -348,7 +332,7 @@ export default function AuditNew() {
 
           <Row gutter={[14, 6]}>
             <Col xs={12} lg={4}><Form.Item name="repetitions" label="每目标重复次数"><InputNumber min={1} max={20} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} lg={4}><Form.Item name="maxOutputTokens" label="输出上限" extra="默认 512；越小越省钱，审计只关注输入 Token"><InputNumber min={1} max={4096} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} lg={4}><Form.Item name="maxOutputTokens" label="输出上限"><InputNumber min={1} max={4096} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="temperature" label="temperature"><InputNumber min={0} max={2} step={0.1} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="concurrency" label="并发"><InputNumber min={1} max={32} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="超时（秒）"><InputNumber min={1} max={600} style={{ width: '100%' }} /></Form.Item></Col>
@@ -380,12 +364,12 @@ export default function AuditNew() {
         </div>
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Space wrap>
-            <Tag color="blue">目标 {validTargets.length}</Tag>
-            <Tag color="gold">提示词 {promptIds.length}</Tag>
-            <Tag color="purple">重复 {reps}</Tag>
-            <Tag color="magenta">预计请求 {planned}</Tag>
-          </Space>
+          <SummaryLine items={[
+            { label: '目标', value: validTargets.length },
+            { label: '提示词', value: promptIds.length },
+            { label: '重复', value: reps },
+            { label: '预计请求', value: planned },
+          ]} />
           <Button type="primary" size="large" icon={<PlayCircleOutlined />} htmlType="submit" loading={submitting}>启动审计</Button>
         </div>
       </Form>

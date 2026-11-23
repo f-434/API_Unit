@@ -8,7 +8,7 @@ import { api } from '../api'
 import type {
   AuthenticityCheck, AuthenticityLiveModel, AuthenticityModelReport, AuthenticityReport, Live,
 } from '../types'
-import { EmptyPanel, JsonBlock, Kpi } from './common'
+import { EmptyPanel, JsonBlock, Kpi, NotesCollapse } from './common'
 import { ItemDrawer } from './RunItems'
 
 const verdictColor: Record<string, string> = {
@@ -472,36 +472,8 @@ export default function AuthenticityReportView({
     )
   }
 
-  const totalPassed = rows.reduce((n, r) => n + r.passed, 0)
-  const totalFailed = rows.reduce((n, r) => n + r.failed, 0)
-  const totalNA = rows.reduce((n, r) => n + r.na, 0)
-  const overallRate = totalPassed + totalFailed > 0 ? Math.round(totalPassed / (totalPassed + totalFailed) * 100) : 0
-  const uniqueModels = new Set(rows.map(r => `${r.targetId}:${r.model}`)).size
-  const rowVerdicts = rows.reduce<Record<string, number>>((m, r) => {
-    m[r.verdict] = (m[r.verdict] || 0) + 1
-    return m
-  }, {})
-
   return (
     <div>
-      <div className="kpi-grid" style={{ marginBottom: 14 }}>
-        <Kpi label="模型数" value={uniqueModels} />
-        <Kpi label="测试次数" value={rows.length} />
-        <Kpi label="总体通过率" value={`${overallRate}%`} color={overallRate >= 100 ? '#16a34a' : overallRate >= 60 ? '#d97706' : '#dc2626'} />
-        <Kpi label="通过 / 较可信" value={`${rowVerdicts.authentic || 0} / ${rowVerdicts.likely || 0}`} />
-        <Kpi label="可疑 / 仿冒" value={`${rowVerdicts.suspicious || 0} / ${rowVerdicts.counterfeit || 0}`} />
-        <Kpi label="证据不足 / 错误" value={`${rowVerdicts.inconclusive || 0} / ${rowVerdicts.error || 0}`} />
-        <Kpi label="检查 通过 / 失败 / N/A" value={`${totalPassed} / ${totalFailed} / ${totalNA}`} />
-      </div>
-
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="列表按「模型 × 测试轮次」展示；点击行展开逐条检查结果。"
-        description="通过率 = 通过 /（通过 + 失败），N/A 不计入分母。展开后按接口指纹、响应来源、工具调用情况、模型身份、数据一致性分组，逐条显示证据与失败原因；点击检查行的「请求/响应」可展开该次请求的原始请求体、响应体和响应头。"
-      />
-
       <Space style={{ marginBottom: 10 }}>
         <Button size="small" onClick={() => setExpandedKeys(rows.map(r => r.key))}>展开全部</Button>
         <Button size="small" onClick={() => setExpandedKeys([])}>收起全部</Button>
@@ -618,15 +590,7 @@ export default function AuthenticityReportView({
         ]}
       />
 
-      <Alert
-        style={{ marginTop: 14 }}
-        type="info"
-        showIcon
-        message="如何解读结论"
-        description={<ul style={{ margin: 0, paddingLeft: 18 }}>
-          {(report.notes || []).map((n, i) => <li key={i}>{n}</li>)}
-        </ul>}
-      />
+      <NotesCollapse notes={report.notes} />
 
       <Modal
         open={!!tplModal.open}

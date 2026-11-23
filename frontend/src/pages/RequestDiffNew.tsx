@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Col, Form, InputNumber, Row, Select, Space, Switch, Tag, message } from 'antd'
+import { Button, Col, Form, InputNumber, Row, Select, Switch, message } from 'antd'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { api } from '../api'
-import { PageHeader } from '../components/common'
+import { PageHeader, SummaryLine } from '../components/common'
 import { TargetRowsEditor, type TargetRow } from '../components/TargetModel'
 import RequestCaseEditor, { newCase, toRequest, type CaseDraft } from '../components/RequestCaseEditor'
 
@@ -77,10 +77,7 @@ export default function RequestDiffNew() {
 
   return (
     <>
-      <PageHeader
-        title="新建请求差异审计"
-        subtitle="保存每次请求的完整正文与 SHA-256，按 System Prompt / User Prompt / 历史 / Tools / Function Response / 多模态等分区计算指纹，并支持 JSONPath 结构化 Diff。"
-      />
+      <PageHeader title="新建请求差异审计" />
       <Form
         form={form}
         layout="vertical"
@@ -92,13 +89,6 @@ export default function RequestDiffNew() {
           maxRetries: 0, backoffMs: 500, maxBackoffMs: 5000, retryOn429: true, retryOn5xx: true, retryOnNetwork: true,
         }}
       >
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 14 }}
-          message="请求快照与 Token 统计"
-          description="Token 统计完全复用 Token 审计模块。快照保存本工具实际发出的请求正文；若 New API 在服务端改写了请求，需要结合其网关日志另行核对。支持 wire（systemInstruction/contents/tools/generationConfig 等原生字段）与 canonical 两种对比模式。"
-        />
         <div className="panel">
           <div className="panel-title">1. 对比目标</div>
           <Form.Item name="targets" rules={[{ required: true }]}>
@@ -117,7 +107,7 @@ export default function RequestDiffNew() {
             <Col xs={12} lg={3}><Form.Item name="repetitions" label="重复次数"><InputNumber min={1} max={20} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={3}><Form.Item name="concurrency" label="并发"><InputNumber min={1} max={32} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={3}><Form.Item name="timeoutSec" label="超时（秒）"><InputNumber min={1} max={600} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} lg={3}><Form.Item name="maxOutputTokens" label="覆盖输出上限" extra="0 = 使用用例值"><InputNumber min={0} max={8192} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} lg={3}><Form.Item name="maxOutputTokens" label="输出上限"><InputNumber min={0} max={8192} placeholder="0 = 用例值" style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={3}><Form.Item name="anomalyThresholdPct" label="异常阈值 %"><InputNumber min={1} max={100} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={3}>
               <Form.Item name="baseline" label="Token 基线">
@@ -138,13 +128,12 @@ export default function RequestDiffNew() {
         </div>
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Space wrap>
-            <Tag color="blue">目标 {validTargets}</Tag>
-            <Tag color="purple">用例 {cases.length}</Tag>
-            <Tag color="gold">重复 {reps}</Tag>
-            <Tag color="magenta">预计请求 {planned}</Tag>
-            <Tag>每个请求生成 1 份完整快照</Tag>
-          </Space>
+          <SummaryLine items={[
+            { label: '目标', value: validTargets },
+            { label: '用例', value: cases.length },
+            { label: '重复', value: reps },
+            { label: '预计请求', value: planned },
+          ]} />
           <Button type="primary" size="large" icon={<PlayCircleOutlined />} htmlType="submit" loading={submitting}>启动审计</Button>
         </div>
       </Form>

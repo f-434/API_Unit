@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  Button, Col, Collapse, Input, InputNumber, Row, Segmented, Select, Space, Tag, Typography,
+  Button, Col, Collapse, Input, InputNumber, Row, Segmented, Select, Space, Typography,
 } from 'antd'
 import { DeleteOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
 
@@ -182,10 +182,7 @@ function CaseCard({ draft, index, onChange, onRemove }: {
           <Segmented value={draft.mode} onChange={v => switchMode(v as any)} options={[{ label: '表单', value: 'basic' }, { label: '完整 JSON', value: 'json' }]} block />
         </Col>
         <Col flex="auto" style={{ textAlign: 'right' }}>
-          <Space>
-            <Tag color="purple">{draft.mode === 'json' ? 'JSON 模式' : '表单模式'}</Tag>
-            <Button danger type="text" icon={<DeleteOutlined />} onClick={onRemove} disabled={index === 0} />
-          </Space>
+          <Button danger type="text" icon={<DeleteOutlined />} title="删除用例" onClick={onRemove} disabled={index === 0} />
         </Col>
       </Row>
       {formatError && <Typography.Text type="danger" style={{ fontSize: 12 }}>{formatError}</Typography.Text>}
@@ -251,7 +248,6 @@ function CaseCard({ draft, index, onChange, onRemove }: {
                   <>
                     <Input.TextArea rows={6} className="code-input" value={draft.media} onChange={e => set({ media: e.target.value })}
                       placeholder={'[{"type":"image","url":"https://example.com/a.png","mimeType":"image/png"},{"type":"file","data":"<base64>","mimeType":"application/pdf"}]'} />
-                    <div className="form-hint">支持 type=image/audio/video/file；url 与 data（base64）二选一。完整数据会写入请求快照并参与指纹计算。</div>
                   </>
                 ),
               },
@@ -341,11 +337,7 @@ export default function RequestCaseEditor({ value, onChange }: { value: CaseDraf
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-        <Space>
-          <Tag color="purple">{cases.length} 个请求用例</Tag>
-          <span className="form-hint">每个用例会发送到全部对比目标；快照与差异按“用例 × 目标 × 重复”生成。</span>
-        </Space>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
         <Space>
           <Button icon={<ThunderboltOutlined />} onClick={loadExample}>载入示例</Button>
           <Button type="dashed" icon={<PlusOutlined />} onClick={add}>添加用例</Button>

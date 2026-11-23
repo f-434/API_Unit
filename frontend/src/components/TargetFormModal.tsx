@@ -103,16 +103,11 @@ export default function TargetFormModal({
           name="baseUrl"
           label="Base URL"
           rules={[{ required: true, message: '请输入 Base URL' }]}
-          extra="支持带或不带 /v1、/v1beta、/v1/chat/completions 后缀，保存时会自动规范化。"
         >
           <Input placeholder="https://api.example.com 或 http://127.0.0.1:3000" />
         </Form.Item>
-        <Form.Item
-          name="modelsPath"
-          label="模型列表接口（可选）"
-          extra="留空时自动探测 /v1/models 与 /v1beta/models；可填 /v1/models 或完整 URL，用于网关不按标准路径提供模型列表的情况。"
-        >
-          <Input placeholder="留空自动探测，例如 /v1/models" />
+        <Form.Item name="modelsPath" label="模型列表接口（可选）">
+          <Input placeholder="留空自动探测 /v1/models、/v1beta/models" />
         </Form.Item>
         <Form.Item name="protocol" label="协议">
           <Select options={[
@@ -126,7 +121,6 @@ export default function TargetFormModal({
           name="apiKey"
           label={editing ? 'API Key（留空保持原值）' : 'API Key'}
           rules={editing ? [] : [{ required: true, message: '请输入 API Key' }]}
-          extra="不会被写入浏览器 localStorage，也不会出现在测试历史配置中。"
         >
           <Input.Password placeholder="sk-..." autoComplete="new-password" />
         </Form.Item>

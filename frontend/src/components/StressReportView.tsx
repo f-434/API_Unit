@@ -24,14 +24,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
   const hasData = !!aggregate || !!live
   if (!hasData) return <EmptyPanel text="暂无压测数据。" />
 
-  const total = aggregate?.total ?? live?.completed ?? 0
-  const success = aggregate?.success ?? live?.success ?? 0
-  const failed = aggregate?.failed ?? live?.failed ?? 0
   const canceled = aggregate?.canceled ?? live?.canceled ?? 0
-  const successRate = aggregate?.successRate ?? live?.successRate ?? 0
-  const qps = aggregate?.qps ?? live?.qps ?? 0
-  const rpm = aggregate?.rpm ?? live?.rpm ?? 0
-  const elapsed = aggregate?.elapsedMs ?? live?.elapsedMs ?? 0
   const latency = aggregate?.latency || live?.latency
   const ttft = aggregate?.ttft || live?.ttft
   const tpot = aggregate?.tpot || live?.tpot
@@ -51,20 +44,13 @@ export default function StressReportView({ aggregate, models, live, config }: {
   return (
     <div>
       <div className="kpi-grid" style={{ marginBottom: 14 }}>
-        <Kpi label="总请求" value={fmtInt(total)} />
-        <Kpi label="成功" value={fmtInt(success)} color="#16a34a" />
-        <Kpi label="失败" value={fmtInt(failed)} color={failed ? '#dc2626' : undefined} />
         <Kpi label="取消" value={fmtInt(canceled)} />
-        <Kpi label="成功率" value={fmtPct(successRate)} />
-        <Kpi label="QPS" value={fmtNum(qps, 2)} suffix="req/s" />
-        <Kpi label="RPM" value={fmtNum(rpm, 2)} suffix="req/min" />
         <Kpi label="平均延迟" value={fmtMs(latency?.avg)} />
         <Kpi label="P95 延迟" value={fmtMs(latency?.p95)} />
         <Kpi label="平均 TTFT" value={fmtMs(ttft?.avg)} />
         <Kpi label="平均 TPOT" value={fmtMs(tpot?.avg)} />
         <Kpi label="平均输出速度" value={fmtNum(tokens?.avgTokensPerSec, 1)} suffix="tok/s" />
         <Kpi label="输出 Token" value={fmtInt(tokens?.completion)} />
-        <Kpi label="成本" value={fmtCost(tokens?.cost)} />
         <Kpi label="实际并发" value={live ? fmtInt(live.activeConcurrency) : '-'} />
         {live?.status === 'running' && plan && (
           <Kpi
@@ -172,7 +158,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
               { title: '消息', dataIndex: 'message', render: (v: string) => <Tooltip title={v}><span className="small-mono">{truncate(v, 160)}</span></Tooltip> },
             ]}
           />
-        ) : <Alert type="success" showIcon message="没有错误。" />}
+        ) : <span className="muted">无错误</span>}
       </div>
 
       {!!live?.recent?.length && (

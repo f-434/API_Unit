@@ -1,6 +1,6 @@
-import { Alert, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { Space, Table, Tag, Typography } from 'antd'
 import type { AuditCell, AuditReport } from '../types'
-import { Kpi, EmptyPanel, ResponseModelCell, VerdictTag } from './common'
+import { Kpi, EmptyPanel, NotesCollapse, ResponseModelCell, VerdictTag } from './common'
 import {
   auditCellStats, fmtCost, fmtMs, fmtNum, fmtPct, fmtInt, requestSuccessRate, targetAuditStats,
 } from '../format'
@@ -27,7 +27,12 @@ function CellView({ c }: { c?: AuditCell }) {
   )
 }
 
-export default function AuditReportView({ report, showCharts = true }: { report?: AuditReport; showCharts?: boolean }) {
+export default function AuditReportView({ report, showCharts = true, hideSummary = false }: {
+  report?: AuditReport
+  showCharts?: boolean
+  /** 测试详情页顶部已展示同样的汇总，避免重复。 */
+  hideSummary?: boolean
+}) {
   if (!report) return <EmptyPanel text="审计报告尚未生成（测试运行中或已中断）。" />
   const audit = auditCellStats(report)
   const reqRate = requestSuccessRate(report)
@@ -55,20 +60,22 @@ export default function AuditReportView({ report, showCharts = true }: { report?
   return (
     <div>
       <div className="kpi-grid" style={{ marginBottom: 14 }}>
-        <Kpi
-          label="审计成功率"
-          value={audit.rate === undefined ? '-' : fmtPct(audit.rate)}
-          color={audit.rate === undefined ? undefined : audit.rate >= 100 ? '#16a34a' : '#d97706'}
-        />
+        {!hideSummary && (
+          <Kpi
+            label="审计成功率"
+            value={audit.rate === undefined ? '-' : fmtPct(audit.rate)}
+            color={audit.rate === undefined ? undefined : audit.rate >= 100 ? '#16a34a' : '#d97706'}
+          />
+        )}
         <Kpi
           label="审计单元格"
           value={audit.total ? `${fmtInt(audit.normal)} / ${fmtInt(audit.total)}` : '-'}
           color={audit.total && audit.normal < audit.total ? '#d97706' : undefined}
         />
-        <Kpi label="请求成功率" value={fmtPct(reqRate)} />
-        <Kpi label="总请求" value={fmtInt(report.totalRequests)} />
-        <Kpi label="成功" value={fmtInt(report.success)} color="#16a34a" />
-        <Kpi label="错误" value={fmtInt(report.errors)} color={report.errors ? '#dc2626' : undefined} />
+        {!hideSummary && <Kpi label="请求成功率" value={fmtPct(reqRate)} />}
+        {!hideSummary && <Kpi label="总请求" value={fmtInt(report.totalRequests)} />}
+        {!hideSummary && <Kpi label="成功" value={fmtInt(report.success)} color="#16a34a" />}
+        {!hideSummary && <Kpi label="错误" value={fmtInt(report.errors)} color={report.errors ? '#dc2626' : undefined} />}
         <Kpi label="缺少 usage" value={fmtInt(report.missingUsage)} color={report.missingUsage ? '#d97706' : undefined} />
         <Kpi label="异常单元格" value={report.anomalies.length} color={report.anomalies.length ? '#dc2626' : '#16a34a'} />
         <Kpi label="本地可比样本" value={fmtInt(report.localComparable)} />
@@ -144,7 +151,7 @@ export default function AuditReportView({ report, showCharts = true }: { report?
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="panel-title">异常明细</div>
         {report.anomalies.length === 0 ? (
-          <Alert type="success" showIcon message="未发现超过阈值的异常。" />
+          <span className="muted">未发现超过阈值的异常</span>
         ) : (
           <Table
             rowKey={(r, i) => `${r.promptId}-${r.targetLabel}-${i}`}
@@ -167,12 +174,7 @@ export default function AuditReportView({ report, showCharts = true }: { report?
         )}
       </div>
 
-      <Alert
-        type="info"
-        showIcon
-        message="判定口径"
-        description={<ul style={{ margin: 0, paddingLeft: 18 }}>{(report.notes || []).map((n, i) => <li key={i}>{n}</li>)}</ul>}
-      />
+      <NotesCollapse notes={report.notes} />
     </div>
   )
 }

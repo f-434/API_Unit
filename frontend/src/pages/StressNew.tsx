@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Col, Form, Input, InputNumber, Row, Segmented, Select, Space, Switch, Tag, message,
+  Alert, Button, Col, Form, Input, InputNumber, Row, Segmented, Select, Switch, message,
 } from 'antd'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { api } from '../api'
-import { PageHeader } from '../components/common'
+import { PageHeader, SummaryLine } from '../components/common'
 import { ModelMultiSelect, TargetSelect, useTargets } from '../components/TargetModel'
 
 export default function StressNew() {
@@ -80,10 +80,7 @@ export default function StressNew() {
 
   return (
     <>
-      <PageHeader
-        title="新建并发压测"
-        subtitle="闭环保并发调度，支持固定请求数、持续时长与并发爬坡。同一进程内多模型可串行或并行执行。"
-      />
+      <PageHeader title="新建并发压测" />
       <Form
         form={form}
         layout="vertical"
@@ -111,13 +108,20 @@ export default function StressNew() {
               </Form.Item>
             </Col>
           </Row>
-          {!targets.length && <Alert type="warning" showIcon message="还没有上游，请先到“上游 / 供应商”添加 Base URL 与 API Key。" />}
+          {!targets.length && (
+            <Alert
+              type="warning"
+              showIcon
+              message="请先添加上游"
+              action={<Button size="small" onClick={() => navigate('/targets')}>去添加</Button>}
+            />
+          )}
         </div>
 
         <div className="panel">
           <div className="panel-title">2. 请求参数</div>
-          <Form.Item name="promptIds" label="提示词轮换（可选）" extra="选择后会按请求序号轮换这些提示词；未选择时使用下方固定提示词。">
-            <Select mode="multiple" allowClear placeholder="选择提示词库中的提示词" options={(prompts?.items || []).map(p => ({ value: p.id, label: p.name }))} />
+          <Form.Item name="promptIds" label="提示词轮换（可选）">
+            <Select mode="multiple" allowClear placeholder="从提示词库选择" options={(prompts?.items || []).map(p => ({ value: p.id, label: p.name }))} />
           </Form.Item>
           <Row gutter={[14, 6]}>
             <Col xs={24} lg={12}>
@@ -129,7 +133,6 @@ export default function StressNew() {
                 label="User Prompt"
                 dependencies={['promptIds']}
                 rules={hasLibraryPrompts ? [] : [{ required: true, message: '请输入提示词' }]}
-                extra={hasLibraryPrompts ? '已选择提示词轮换，本次测试按请求序号轮换使用上方提示词，此项不生效。' : undefined}
               >
                 <Input.TextArea rows={4} disabled={hasLibraryPrompts} placeholder={hasLibraryPrompts ? '已使用上方提示词轮换' : undefined} />
               </Form.Item>
@@ -180,13 +183,13 @@ export default function StressNew() {
           )}
           <Row gutter={[14, 6]}>
             <Col xs={12} lg={6}>
-              <Form.Item name="rpsLimit" label="RPS 上限（0 = 不限）" extra="在并发之外额外限速，适合保护上游。">
+              <Form.Item name="rpsLimit" label="RPS 上限（0 = 不限）">
                 <InputNumber min={0} step={1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={12} lg={6}><Form.Item name="parallelModels" label="多模型并行" valuePropName="checked"><Switch /></Form.Item></Col>
             <Col xs={12} lg={6}>
-              <Form.Item name="captureBodies" label="保存请求/响应正文" valuePropName="checked" extra="开启后明细与导出报告可查看正文；上限：请求 8MB / 响应 1MB / 输出 256KB。">
+              <Form.Item name="captureBodies" label="保存请求/响应正文" valuePropName="checked">
                 <Switch />
               </Form.Item>
             </Col>
@@ -194,7 +197,7 @@ export default function StressNew() {
         </div>
 
         <div className="panel">
-          <div className="panel-title">4. 重试策略（默认关闭）</div>
+          <div className="panel-title">4. 重试策略</div>
           <Row gutter={[14, 6]}>
             <Col xs={12} lg={4}><Form.Item name="maxRetries" label="最大重试"><InputNumber min={0} max={10} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="backoffMs" label="退避基数 ms"><InputNumber min={0} max={60000} style={{ width: '100%' }} /></Form.Item></Col>
@@ -206,11 +209,13 @@ export default function StressNew() {
         </div>
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Space wrap>
-            <Tag color="blue">模型数 {models.length}</Tag>
-            {mode === 'fixed' ? <Tag color="purple">预计请求 {planned}</Tag> : <Tag color="purple">持续 {mode === 'duration' ? `${durationSec}s` : '爬坡'}</Tag>}
-            {mode === 'fixed' && <Tag>并发 {concurrency}</Tag>}
-          </Space>
+          <SummaryLine items={[
+            { label: '模型', value: models.length },
+            mode === 'fixed'
+              ? { label: '预计请求', value: planned }
+              : { label: '持续', value: mode === 'duration' ? `${durationSec}s` : '爬坡' },
+            ...(mode === 'fixed' ? [{ label: '并发', value: concurrency }] : []),
+          ]} />
           <Button type="primary" size="large" icon={<PlayCircleOutlined />} htmlType="submit" loading={submitting}>启动压测</Button>
         </div>
       </Form>

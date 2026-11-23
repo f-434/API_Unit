@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Tooltip, Upload, message,
+  Button, Form, Input, Modal, Popconfirm, Space, Table, Tag, message,
 } from 'antd'
 import { DeleteOutlined, DownloadOutlined, EditOutlined, ImportOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -110,10 +110,10 @@ export default function Prompts() {
       title: '操作', width: 110,
       render: (_: any, r: Prompt) => (
         <Space size={2}>
-          <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Button size="small" type="text" icon={<EditOutlined />} title="编辑提示词" onClick={() => openEdit(r)} />
           {!r.builtin && (
             <Popconfirm title="删除该提示词？" onConfirm={() => del.mutate(r.id)}>
-              <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+              <Button size="small" type="text" danger icon={<DeleteOutlined />} title="删除提示词" />
             </Popconfirm>
           )}
         </Space>
@@ -125,7 +125,6 @@ export default function Prompts() {
     <>
       <PageHeader
         title="提示词库"
-        subtitle="用于 Token 审计、请求差异审计；压测也可以选择提示词轮换。内置提示词可直接编辑内容，但不能删除。"
         extra={[
           <Input key="q" allowClear prefix={<SearchOutlined />} placeholder="搜索名称/内容" value={q} onChange={e => setQ(e.target.value)} style={{ width: 220 }} />,
           <Button key="import" icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>导入</Button>,
@@ -153,8 +152,7 @@ export default function Prompts() {
       </Modal>
 
       <Modal open={importOpen} title="导入提示词" onCancel={() => setImportOpen(false)} onOk={() => doImport.mutate()} confirmLoading={doImport.isPending} width={720}>
-        <p className="muted">粘贴 JSON 数组，元素包含 name、category、content。</p>
-        <Input.TextArea rows={14} className="code-input" value={importText} onChange={e => setImportText(e.target.value)} placeholder='[{"name":"示例","content":"..."}]' />
+        <Input.TextArea rows={14} className="code-input" value={importText} onChange={e => setImportText(e.target.value)} placeholder='[{"name":"示例","category":"custom","content":"..."}]' />
       </Modal>
     </>
   )

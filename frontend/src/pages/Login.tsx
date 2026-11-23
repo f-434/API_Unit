@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Card, Form, Input, Tag } from 'antd'
+import { Alert, Button, Card, Form, Input } from 'antd'
 import { LockOutlined, ApiOutlined } from '@ant-design/icons'
 import { api } from '../api'
 
@@ -37,30 +37,17 @@ export default function Login() {
       <Card className="login-card" bordered={false} bodyStyle={{ padding: 30 }}>
         <div className="login-brand">
           <div className="logo"><ApiOutlined /></div>
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>API Unit</div>
-            <div className="muted">LLM 接口测试台 · 本地独立运行</div>
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>API Unit</div>
         </div>
-        <Alert
-          type="info"
-          showIcon
-          message="访问受密码保护"
-          description="请输入服务端 AUTH_PASSWORD 配置的管理密码。"
-          style={{ marginBottom: 18 }}
-        />
         {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 14 }} />}
         <Form layout="vertical" onFinish={submit}>
           <Form.Item name="password" label="管理密码" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password size="large" prefix={<LockOutlined />} autoFocus placeholder="AUTH_PASSWORD" />
+            <Input.Password size="large" prefix={<LockOutlined />} autoFocus placeholder="请输入管理密码" />
           </Form.Item>
           <Button type="primary" size="large" htmlType="submit" block loading={loading}>
             登录
           </Button>
         </Form>
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <Tag>数据仅保存在本机 SQLite</Tag>
-        </div>
       </Card>
     </div>
   )

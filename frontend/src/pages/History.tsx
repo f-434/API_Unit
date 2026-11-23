@@ -34,7 +34,7 @@ export default function History() {
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 190, render: (v: string) => <span className="small-mono">{v}</span> },
     { title: '类型', dataIndex: 'kind', width: 125, render: (v: string) => <KindTag kind={v} /> },
-    { title: '上游/供应商', dataIndex: ['summary', 'targets'], width: 220, render: (v: any) => <TargetTags targets={v} /> },
+    { title: '上游', dataIndex: ['summary', 'targets'], width: 220, render: (v: any) => <TargetTags targets={v} /> },
     { title: '状态', dataIndex: 'status', width: 95, render: (v: string) => <StatusTag status={v} /> },
     { title: '模型', dataIndex: ['summary', 'models'], render: (v: string[]) => (v || []).slice(0, 3).map(m => <Tag key={m}>{m}</Tag>) },
     { title: '请求', width: 85, render: (_: any, r: RunRow) => r.summary?.total ?? 0 },
@@ -60,7 +60,6 @@ export default function History() {
     <>
       <PageHeader
         title="测试历史"
-        subtitle="所有结果保存在本机 SQLite；超过保留天数的记录会在服务启动或每日清理时删除。"
         extra={[
           <Select key="kind" allowClear placeholder="全部类型" value={kind} onChange={v => { setKind(v); setPage(1) }} style={{ width: 150 }}
             options={[

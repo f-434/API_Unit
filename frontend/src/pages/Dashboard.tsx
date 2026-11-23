@@ -1,21 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Space, Table, Tag } from 'antd'
+import { Alert, Button, Table, Tag } from 'antd'
 import {
-  BugOutlined, DiffOutlined, FileSearchOutlined, ThunderboltOutlined, CloudServerOutlined,
-  AppstoreOutlined, ExperimentOutlined, SafetyCertificateOutlined, PictureOutlined,
+  BugOutlined, DiffOutlined, FileSearchOutlined, ThunderboltOutlined,
+  SafetyCertificateOutlined, PictureOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
 import { Kpi, KindTag, PageHeader, StatusTag, TargetTags } from '../components/common'
 import { fmtDuration, fmtPct, fmtTime } from '../format'
 
 const quick = [
-  { key: '/stress/new', icon: <ThunderboltOutlined />, title: '并发压测', desc: '固定请求、持续时长、并发爬坡；统计 TTFT、TPOT、QPS 与真实并发。', color: '#165dff' },
-  { key: '/audit/new', icon: <FileSearchOutlined />, title: 'Token 审计', desc: '多上游输入 Token 对比，结合本地分词器检测异常膨胀与重复波动。', color: '#d97706' },
-  { key: '/request-audit/new', icon: <DiffOutlined />, title: '请求差异审计', desc: '完整请求快照、SHA-256 指纹、JSONPath 结构化 Diff 与隐藏指令扫描。', color: '#7c3aed' },
-  { key: '/injection/new', icon: <BugOutlined />, title: '提示词注入', desc: '规则 + LLM 裁判混合判定，输出 ASR、分类风险与用例明细。', color: '#dc2626' },
-  { key: '/authenticity/new', icon: <SafetyCertificateOutlined />, title: '模型真实性', desc: '本地随机挑战 + 可选 MCP/证明页，多模型并发验证模型与来源。', color: '#0891b2' },
-  { key: '/image-detection/new', icon: <PictureOutlined />, title: '生图检测', desc: '文生图/改图参数一致性验证，并检查 C2PA 元数据与 SynthID 水印。', color: '#c026d3' },
+  { key: '/stress/new', icon: <ThunderboltOutlined />, title: '并发压测', color: '#165dff' },
+  { key: '/audit/new', icon: <FileSearchOutlined />, title: 'Token 审计', color: '#d97706' },
+  { key: '/request-audit/new', icon: <DiffOutlined />, title: '请求差异审计', color: '#7c3aed' },
+  { key: '/injection/new', icon: <BugOutlined />, title: '提示词注入', color: '#dc2626' },
+  { key: '/authenticity/new', icon: <SafetyCertificateOutlined />, title: '模型真实性', color: '#0891b2' },
+  { key: '/image-detection/new', icon: <PictureOutlined />, title: '生图检测', color: '#c026d3' },
 ]
 
 export default function Dashboard() {
@@ -37,7 +37,7 @@ export default function Dashboard() {
 
   const cols = [
     { title: '类型', dataIndex: 'kind', width: 130, render: (v: string) => <KindTag kind={v} /> },
-    { title: '上游/供应商', dataIndex: ['summary', 'targets'], width: 220, render: (v: any) => <TargetTags targets={v} /> },
+    { title: '上游', dataIndex: ['summary', 'targets'], width: 220, render: (v: any) => <TargetTags targets={v} /> },
     { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => <StatusTag status={v} /> },
     { title: '模型', dataIndex: ['summary', 'models'], render: (v: string[]) => (v || []).slice(0, 3).map(m => <Tag key={m}>{m}</Tag>) },
     { title: '请求', width: 90, render: (_: any, r: any) => <span>{r.summary?.total ?? 0}</span> },
@@ -52,7 +52,6 @@ export default function Dashboard() {
     <>
       <PageHeader
         title="概览"
-        subtitle="压测、Token 审计、请求差异审计与提示词注入统一在一个独立测试台中运行。"
         extra={<Button onClick={() => navigate('/runs')}>查看全部历史</Button>}
       />
       <div className="kpi-grid" style={{ marginBottom: 16 }}>
@@ -68,23 +67,17 @@ export default function Dashboard() {
           type="warning"
           showIcon
           style={{ marginBottom: 16 }}
-          message="Gemini 本地分词器尚未下载"
-          description="可在“设置”中一键下载并校验；下载后 Token 审计与请求审计的本地 Token 对比才可用于 Gemini 模型。"
+          message="Gemini 本地分词器未下载"
           action={<Button size="small" onClick={() => navigate('/settings')}>前往设置</Button>}
         />
       )}
 
       <div className="quick-grid" style={{ marginBottom: 18 }}>
         {quick.map(q => (
-          <Card key={q.key} className="quick-card" onClick={() => navigate(q.key)} bodyStyle={{ padding: 18 }}>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ width: 38, height: 38, borderRadius: 10, display: 'grid', placeItems: 'center', background: q.color + '14', color: q.color, fontSize: 18 }}>{q.icon}</div>
-              <div>
-                <div style={{ fontWeight: 650, fontSize: 15 }}>{q.title}</div>
-                <div className="muted" style={{ marginTop: 4, lineHeight: 1.55 }}>{q.desc}</div>
-              </div>
-            </div>
-          </Card>
+          <button key={q.key} type="button" className="quick-card" onClick={() => navigate(q.key)}>
+            <span className="quick-icon" style={{ background: q.color + '14', color: q.color }}>{q.icon}</span>
+            <span className="quick-title">{q.title}</span>
+          </button>
         ))}
       </div>
 
@@ -98,17 +91,8 @@ export default function Dashboard() {
           scroll={{ x: 1560 }}
           pagination={false}
           onRow={r => ({ onClick: () => navigate(`/runs/${r.id}`), style: { cursor: 'pointer' } })}
-          locale={{ emptyText: '还没有测试记录，选择上方任一测试类型开始。' }}
+          locale={{ emptyText: '暂无测试记录' }}
         />
-      </div>
-
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="panel-title">快捷入口</div>
-        <Space wrap>
-          <Button icon={<CloudServerOutlined />} onClick={() => navigate('/targets')}>管理上游与密钥</Button>
-          <Button icon={<AppstoreOutlined />} onClick={() => navigate('/prompts')}>维护提示词库</Button>
-          <Button icon={<ExperimentOutlined />} onClick={() => navigate('/attacks')}>维护攻击用例</Button>
-        </Space>
       </div>
     </>
   )

@@ -10,7 +10,7 @@ import {
   SaveOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
-import { PageHeader } from '../components/common'
+import { PageHeader, SummaryLine } from '../components/common'
 import { ModelMultiSelect, TargetSelect, useTargets } from '../components/TargetModel'
 
 interface Row {
@@ -177,10 +177,7 @@ export default function ImageDetectionNew() {
 
   return (
     <>
-      <PageHeader
-        title={<Space><PictureOutlined /> 新建生图检测</Space>}
-        subtitle="真实调用 OpenAI Images 兼容接口，验证尺寸、透明背景与改图能力；图片按原始字节保存，并检查 C2PA 元数据与 SynthID 水印。"
-      />
+      <PageHeader title={<Space><PictureOutlined /> 新建生图检测</Space>} />
 
       <Form
         form={form}
@@ -265,24 +262,16 @@ export default function ImageDetectionNew() {
                   />
                 </Col>
               </Row>
-              <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>
-                {row.kind === 'images'
-                  ? '图片接口：走 /v1/images/generations 与 /v1/images/edits（或 /v1/edits）。尺寸留空时按模型名推断：4k→4096、2k→2048，其余 1024。'
-                  : '聊天接口：走 /v1/chat/completions，从响应中提取 data URL、markdown 图片或 images 字段。'}
-              </div>
             </div>
           ))}
           <Button type="dashed" block icon={<PlusOutlined />} onClick={() => setRows(prev => [...prev, emptyRow()])}>
             添加上游
           </Button>
-          <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-            生图、改图与聊天生图均按 OpenAI 兼容路径调用；协议选择只用于报告标注，认证统一使用 Bearer API Key。
-          </div>
         </div>
 
         <div className="panel">
           <div className="panel-title">2. 测试项与参数</div>
-          <div className="muted" style={{ marginBottom: 6 }}>图片接口测试项</div>
+          <div className="field-label">图片接口</div>
           <Space wrap style={{ marginBottom: 10 }}>
             {imagePhases.map(p => (
               <Tag.CheckableTag
@@ -294,7 +283,7 @@ export default function ImageDetectionNew() {
               </Tag.CheckableTag>
             ))}
           </Space>
-          <div className="muted" style={{ marginBottom: 6 }}>聊天接口测试项</div>
+          <div className="field-label" style={{ marginTop: 8 }}>聊天接口</div>
           <Space wrap style={{ marginBottom: 12 }}>
             {chatPhases.map(p => (
               <Tag.CheckableTag
@@ -306,17 +295,9 @@ export default function ImageDetectionNew() {
               </Tag.CheckableTag>
             ))}
           </Space>
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 14 }}
-            message="测试项与模型类型自动匹配"
-            description="图片接口模型只执行文生图/改图，聊天接口模型只执行聊天生图；不匹配的测试项会被跳过。只勾选改图时会自动补跑一次 transparent 文生图作为改图输入。"
-          />
-
           <Row gutter={[16, 10]}>
             <Col xs={12} lg={4}><Form.Item name="concurrency" label="模型并发"><InputNumber min={1} max={16} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="单请求超时（秒，含图片下载）"><InputNumber min={10} max={900} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="单请求超时（秒）"><InputNumber min={10} max={900} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="maxRetries" label="最大重试"><InputNumber min={0} max={5} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="backoffMs" label="退避基数 ms"><InputNumber min={0} max={60000} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="maxBackoffMs" label="最大退避 ms"><InputNumber min={0} max={120000} style={{ width: '100%' }} /></Form.Item></Col>
@@ -330,11 +311,6 @@ export default function ImageDetectionNew() {
             <Col xs={8} lg={4}><Form.Item name="retryOn429" label="重试 429" valuePropName="checked"><Switch /></Form.Item></Col>
             <Col xs={8} lg={4}><Form.Item name="retryOn5xx" label="重试 5xx" valuePropName="checked"><Switch /></Form.Item></Col>
             <Col xs={8} lg={4}><Form.Item name="retryOnNetwork" label="重试网络错误" valuePropName="checked"><Switch /></Form.Item></Col>
-            <Col xs={24} lg={12}>
-              <div className="muted" style={{ fontSize: 12, marginTop: 30 }}>
-                只有传输错误、429 和 5xx 会按上述开关重试；参数检查失败不会重试。图片响应体很大且下载慢时，建议提高超时并关闭“重试网络错误”。
-              </div>
-            </Col>
           </Row>
           <Row gutter={[16, 10]}>
             <Col xs={24} lg={12}>
@@ -351,58 +327,49 @@ export default function ImageDetectionNew() {
         </div>
 
         <div className="panel">
-          <div className="panel-title">3. 来源签名与请求传输</div>
+          <div className="panel-title">3. 来源签名</div>
           <Row gutter={[16, 12]} align="middle">
             <Col xs={12} lg={5}>
               <Space size={6}>
                 <Switch checked={signatureLocal} onChange={setSignatureLocal} />
                 <span>本地 C2PA 元数据</span>
               </Space>
-              <div className="muted" style={{ fontSize: 12 }}>解析 JUMBF / caBX 清单，不做验签</div>
             </Col>
             <Col xs={12} lg={5}>
               <Space size={6}>
                 <Switch checked={signatureOnline} onChange={setSignatureOnline} />
                 <span>在线双签名校验</span>
               </Space>
-              <div className="muted" style={{ fontSize: 12 }}>调用 OpenAI Content Provenance API</div>
             </Col>
             <Col xs={24} lg={14}>
-              <Space wrap>
-                <Tag color={hasKey ? 'green' : 'default'}>{hasKey ? 'API Key 已配置' : 'API Key 未配置'}</Tag>
-                <Tag>Endpoint: {config?.settings?.endpoint || 'https://api.openai.com/v1/content_provenance_checks'}</Tag>
-                {config?.settings?.keyMasked && <Tag>{config.settings.keyMasked}</Tag>}
-              </Space>
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                在线校验会同时返回 C2PA 与 SynthID 两类结果；未配置 Key 时仍可使用报告中的第三方校验入口手动上传。
-              </div>
+              <Tag color={hasKey ? 'green' : 'default'}>{hasKey ? 'API Key 已配置' : 'API Key 未配置'}</Tag>
             </Col>
           </Row>
 
           <Row gutter={[10, 10]} align="top" style={{ marginTop: 12 }}>
             <Col xs={24} lg={8}>
+              <div className="field-label">在线验签 Base URL</div>
               <Input value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.openai.com" />
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>在线验签 Base URL</div>
             </Col>
             <Col xs={24} lg={8}>
+              <div className="field-label">在线验签 API Key</div>
               <Input.Password
                 value={keyInput}
                 onChange={e => setKeyInput(e.target.value)}
-                placeholder={hasKey ? '输入新 Key 可覆盖，留空保持不变' : 'sk-...'}
+                placeholder={hasKey ? '留空保持不变' : 'sk-...'}
                 autoComplete="new-password"
               />
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>在线验签 API Key</div>
             </Col>
             <Col xs={24} lg={8}>
+              <div className="field-label">生图代理（http / https / socks5）</div>
               <Input
                 value={proxyInput}
                 onChange={e => setProxyInput(e.target.value)}
                 placeholder={config?.settings?.proxyConfigured
                   ? `已配置 ${config.settings.proxyMasked}，留空保持不变`
-                  : '生图代理，例如 http://127.0.0.1:7890'}
+                  : 'http://127.0.0.1:7890'}
                 autoComplete="off"
               />
-              <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>支持 http/https/socks5，可带账号密码；仅用于生图请求</div>
             </Col>
           </Row>
           <Row gutter={[10, 10]} align="middle" style={{ marginTop: 10 }}>
@@ -411,9 +378,6 @@ export default function ImageDetectionNew() {
                 <Switch checked={forceTls12} onChange={setForceTls12} />
                 <span>强制 TLS 1.2</span>
               </Space>
-              <div className="muted" style={{ fontSize: 12 }}>
-                部分网络会限速 TLS 1.3 的大响应体；开启后生图请求改用 TLS 1.2 + AES-256-GCM
-              </div>
             </Col>
             <Col xs={24} lg={14}>
               <Space wrap>
@@ -436,25 +400,17 @@ export default function ImageDetectionNew() {
               type="warning"
               showIcon
               message="已启用在线校验，但尚未配置 API Key"
-              description="本次仍会保存图片并执行本地 C2PA 检查；在线结果会标记为未配置。配置 Key 后可自动同时校验 C2PA 与 SynthID。"
+              description="本次仍会保存图片并执行本地 C2PA 检查；在线结果会标记为未配置。"
             />
           )}
-          <Alert
-            style={{ marginTop: 12 }}
-            type="info"
-            showIcon
-            message="签名缺失不等于造假"
-            description="平台转码、缩放、截图或上游重编码都可能移除 C2PA 元数据并削弱 SynthID 水印。在线校验结果只说明是否检测到受支持的签名信号。"
-          />
         </div>
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Space wrap>
-            <Tag color="magenta">模型 {modelCount}</Tag>
-            <Tag color="purple">预计测试项 {estimatedPhases}</Tag>
-            <Tag color="cyan">并发 {concurrency || 2}</Tag>
-            <Tag color={signatureOnline ? 'green' : 'gold'}>在线验签 {signatureOnline ? '启用' : '关闭'}</Tag>
-          </Space>
+          <SummaryLine items={[
+            { label: '模型', value: modelCount },
+            { label: '预计测试项', value: estimatedPhases },
+            { label: '并发', value: concurrency || 2 },
+          ]} />
           <Tooltip title={!modelCount ? '请先选择上游和模型' : estimatedPhases === 0 ? '当前测试项与模型类型不匹配' : ''}>
             <Button
               type="primary"

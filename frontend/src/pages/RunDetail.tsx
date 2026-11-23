@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Descriptions, Dropdown, Popconfirm, Space, Spin, Tabs, Tag, message,
+  Alert, Button, Dropdown, Popconfirm, Space, Spin, Tabs, Tag, message,
 } from 'antd'
 import {
   ArrowLeftOutlined, DeleteOutlined, DownloadOutlined, ReloadOutlined, StopOutlined,
@@ -12,10 +12,9 @@ import type {
   AuditReport, AuthenticityReport, ImageDetectionReport, InjectionReport, Live, RequestDiffReport,
 } from '../types'
 import {
-  kindLabel, kindColor, fmtInt, fmtPct, fmtDuration, fmtTime, fmtCost,
-  auditCellStats, statusLabel,
+  kindLabel, fmtInt, fmtPct, fmtDuration, fmtCost, auditCellStats,
 } from '../format'
-import { EmptyPanel, JsonBlock, Kpi, PageHeader, StatusTag, KindTag } from '../components/common'
+import { EmptyPanel, JsonBlock, Kpi, NotesCollapse, PageHeader, StatusTag, KindTag } from '../components/common'
 import { SeriesCharts } from '../components/charts'
 import StressReportView from '../components/StressReportView'
 import AuditReportView from '../components/AuditReportView'
@@ -78,13 +77,7 @@ function RequestDiffOverview({ report, live, running }: { report?: RequestDiffRe
         </div>
       </div>
       <AuditReportView report={report.audit} />
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginTop: 14 }}
-        message="关于快照边界"
-        description={<ul style={{ margin: 0, paddingLeft: 18 }}>{report.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
-      />
+      <NotesCollapse title="快照边界" notes={report.notes} />
     </div>
   )
 }
@@ -198,6 +191,11 @@ export default function RunDetail() {
     ? (reportData as ImageDetectionReport | undefined)
     : undefined
   const imageSummary = imageReport?.summary
+  const passRateOf = (passed?: number, failed?: number) => {
+    const p = passed || 0
+    const f = failed || 0
+    return p + f > 0 ? Math.round((p / (p + f)) * 100) : 0
+  }
   const headerKpis = (
     <div className="kpi-grid" style={{ marginBottom: 14 }}>
       <Kpi label="状态" value={<StatusTag status={status} />} />
@@ -205,6 +203,7 @@ export default function RunDetail() {
         <>
           <Kpi label="模型数" value={fmtInt(imageSummary.models)} />
           <Kpi label="测试项" value={fmtInt(imageSummary.phases)} />
+          <Kpi label="通过率" value={`${passRateOf(imageSummary.passed, imageSummary.failed)}%`} color={passRateOf(imageSummary.passed, imageSummary.failed) >= 100 ? '#16a34a' : '#d97706'} />
           <Kpi label="通过 / 失败 / N/A" value={`${imageSummary.passed} / ${imageSummary.failed} / ${imageSummary.na}`} />
           <Kpi label="C2PA 检出" value={fmtInt(imageSummary.c2paDetected)} color={imageSummary.c2paDetected ? '#16a34a' : undefined} />
           <Kpi label="SynthID 检出" value={fmtInt(imageSummary.synthIdDetected)} color={imageSummary.synthIdDetected ? '#0891b2' : undefined} />
@@ -216,7 +215,8 @@ export default function RunDetail() {
           <Kpi label="测试次数" value={fmtInt(authTests)} />
           <Kpi label="通过 / 较可信" value={<span style={{ color: '#16a34a' }}>{authSummary.authentic} / {authSummary.likely}</span>} />
           <Kpi label="可疑 / 仿冒" value={<span style={{ color: authSummary.counterfeit ? '#dc2626' : '#d97706' }}>{authSummary.suspicious} / {authSummary.counterfeit}</span>} />
-          <Kpi label="证据不足" value={fmtInt(authSummary.inconclusive)} />
+          <Kpi label="证据不足 / 错误" value={`${authSummary.inconclusive} / ${authSummary.error}`} />
+          <Kpi label="检查通过率" value={`${passRateOf(authSummary.passed, authSummary.failed)}%`} color={passRateOf(authSummary.passed, authSummary.failed) >= 100 ? '#16a34a' : '#d97706'} />
           <Kpi label="检查 通过 / 失败 / N/A" value={`${authSummary.passed} / ${authSummary.failed} / ${authSummary.na}`} />
         </>
       ) : (
@@ -282,7 +282,7 @@ export default function RunDetail() {
     ]
   } else if (kind === 'token_audit') {
     tabs = [
-      { key: 'overview', label: '审计总览', children: reportData ? <AuditReportView report={reportData} /> : <RunningOverview live={live} successLabel="请求成功率" /> },
+      { key: 'overview', label: '审计总览', children: reportData ? <AuditReportView report={reportData} hideSummary /> : <RunningOverview live={live} successLabel="请求成功率" /> },
       { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
       { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
@@ -331,7 +331,6 @@ export default function RunDetail() {
     <>
       <PageHeader
         title={<Space><KindTag kind={kind} /> {kindLabel(kind)} · <span className="small-mono">{id}</span></Space>}
-        subtitle={<Space wrap split={<span className="muted">·</span>}><span>创建 {fmtTime(data.run.createdAt)}</span><span>开始 {fmtTime(data.run.startedAt)}</span><span>结束 {fmtTime(data.run.finishedAt)}</span><span>耗时 {fmtDuration(data.run.durationMs || summary?.elapsedMs)}</span></Space>}
         extra={[
           <Button key="back" icon={<ArrowLeftOutlined />} onClick={() => navigate('/runs')}>返回历史</Button>,
           <Button key="refresh" icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>刷新</Button>,

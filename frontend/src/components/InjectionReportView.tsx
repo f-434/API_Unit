@@ -1,8 +1,8 @@
 import { Alert, Space, Table, Tag } from 'antd'
 import type { InjectionReport, Live } from '../types'
-import { EmptyPanel, Kpi, ResponseModelCell, SeverityTag, VerdictTag } from './common'
+import { EmptyPanel, Kpi, NotesCollapse, ResponseModelCell, SeverityTag, VerdictTag } from './common'
 import { BarChart, DonutChart } from './charts'
-import { categoryLabel, fmtCost, fmtPct, fmtInt, verdictLabel } from '../format'
+import { categoryLabel, fmtCost, fmtPct, fmtInt } from '../format'
 
 function liveCounts(live?: Live) {
   const ex = live?.extra || {}
@@ -26,12 +26,12 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
   return (
     <div>
       <div className="kpi-grid" style={{ marginBottom: 14 }}>
-        <Kpi label="ASR（攻击成功率）" value={fmtPct(counts.asr)} color={counts.asr > 0 ? '#dc2626' : '#16a34a'} />
+        {!report && <Kpi label="ASR（攻击成功率）" value={fmtPct(counts.asr)} color={counts.asr > 0 ? '#dc2626' : '#16a34a'} />}
         <Kpi label="注入成功" value={fmtInt(counts.success)} color={counts.success ? '#dc2626' : undefined} />
         <Kpi label="已防御" value={fmtInt(counts.blocked)} color="#16a34a" />
         <Kpi label="无法判定" value={fmtInt(counts.unclear)} color={counts.unclear ? '#d97706' : undefined} />
-        <Kpi label="执行失败" value={fmtInt(counts.errors)} />
-        <Kpi label="总测试数" value={fmtInt(counts.total)} />
+        {!report && <Kpi label="执行失败" value={fmtInt(counts.errors)} />}
+        {!report && <Kpi label="总测试数" value={fmtInt(counts.total)} />}
         <Kpi label="裁判 Token" value={fmtInt(counts.judgeTokens)} />
         {report && <Kpi label="裁判成本" value={fmtCost(report.judgeCost)} />}
         {report && <Kpi label="规则直接判定" value={fmtInt(report.ruleDecisive)} />}
@@ -158,17 +158,7 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
         </div>
       ) : null}
 
-      {report?.notes && (
-        <Alert
-          type="info"
-          showIcon
-          message="判定口径"
-          description={<ul style={{ margin: 0, paddingLeft: 18 }}>{report.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
-        />
-      )}
-      {!report && live && (
-        <Alert type="info" showIcon message="测试运行中" description="实时 ASR 来自当前判定计数；完整用例/分类报告在测试完成后生成。" />
-      )}
+      <NotesCollapse notes={report?.notes} />
     </div>
   )
 }

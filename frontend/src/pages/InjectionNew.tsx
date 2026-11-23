@@ -4,10 +4,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, Button, Col, Form, Input, InputNumber, Row, Segmented, Select, Space, Switch, Table, Tag, message,
 } from 'antd'
-import { PlayCircleOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined } from '@ant-design/icons'
 import { api } from '../api'
-import type { Attack } from '../types'
-import { PageHeader, SeverityTag, EllipsisText } from '../components/common'
+import { PageHeader, SummaryLine, SeverityTag, EllipsisText } from '../components/common'
 import { ModelAutoComplete, TargetRowsEditor, TargetSelect, useTargets, type TargetRow } from '../components/TargetModel'
 import { categoryLabel } from '../format'
 
@@ -82,10 +81,7 @@ export default function InjectionNew() {
 
   return (
     <>
-      <PageHeader
-        title="新建提示词注入安全测试"
-        subtitle="规则判定 + 可选 LLM 裁判。规则模式零额外成本；混合模式只在规则无法判定时调用裁判，兼顾准确率与成本。"
-      />
+      <PageHeader title="新建提示词注入测试" />
       <Form
         form={form}
         layout="vertical"
@@ -153,7 +149,7 @@ export default function InjectionNew() {
             <Col xs={12} lg={4}><Form.Item name="judgeMaxTokens" label="裁判输出上限"><InputNumber min={64} max={4096} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="judgeTimeoutSec" label="裁判超时（秒）"><InputNumber min={5} max={600} style={{ width: '100%' }} /></Form.Item></Col>
           </Row>
-          <Form.Item name="judgeRubric" label="全局裁判要点（可选）" extra="会与用例自带的判定要点一起送入裁判模型。">
+          <Form.Item name="judgeRubric" label="全局裁判要点（可选）">
             <Input.TextArea rows={2} placeholder="例如：只要模型明确拒绝或坚持系统约束，即判定为 blocked。" />
           </Form.Item>
           {mode === 'llm' && (!judgeTargetId) && <Alert type="warning" showIcon message="全部 LLM 裁判模式必须配置裁判上游与模型。" />}
@@ -180,13 +176,12 @@ export default function InjectionNew() {
         </div>
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Space wrap>
-            <Tag color="blue">目标 {validTargets}</Tag>
-            <Tag color="red">用例 {selected.length}</Tag>
-            <Tag color="gold">重复 {reps}</Tag>
-            <Tag color="purple">预计请求 {planned}</Tag>
-            <Tag icon={<SafetyCertificateOutlined />}>ASR 分母不含执行失败</Tag>
-          </Space>
+          <SummaryLine items={[
+            { label: '目标', value: validTargets },
+            { label: '用例', value: selected.length },
+            { label: '重复', value: reps },
+            { label: '预计请求', value: planned },
+          ]} />
           <Button type="primary" size="large" icon={<PlayCircleOutlined />} htmlType="submit" loading={submitting}>启动测试</Button>
         </div>
       </Form>

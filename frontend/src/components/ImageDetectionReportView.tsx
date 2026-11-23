@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import {
   Alert, Button, Col, Collapse, Descriptions, Image, Row, Space, Table, Tag, Tooltip, message,
 } from 'antd'
@@ -7,7 +6,7 @@ import type {
   ImageDetectionImage, ImageDetectionLiveModel, ImageDetectionModelReport, ImageDetectionPhase,
   ImageDetectionReport, Live,
 } from '../types'
-import { EmptyPanel, JsonBlock, Kpi } from './common'
+import { EmptyPanel, JsonBlock, Kpi, NotesCollapse } from './common'
 
 const statusColor: Record<string, string> = { pass: 'green', fail: 'red', warn: 'gold', na: 'default' }
 const statusText: Record<string, string> = { pass: '通过', fail: '失败', warn: '警告', na: 'N/A' }
@@ -249,12 +248,6 @@ export default function ImageDetectionReportView({
 }) {
   void runId
 
-  const totalRate = useMemo(() => {
-    if (!report) return 0
-    const denom = report.summary.passed + report.summary.failed
-    return denom > 0 ? Math.round(report.summary.passed / denom * 100) : 0
-  }, [report])
-
   if (!report || !report.summary) {
     const done = Number(live?.extra?.imageDetectionDone || 0)
     const total = Number(live?.extra?.imageDetectionTotal || 0)
@@ -319,24 +312,6 @@ export default function ImageDetectionReportView({
 
   return (
     <div>
-      <div className="kpi-grid" style={{ marginBottom: 14 }}>
-        <Kpi label="模型数" value={report.summary.models} />
-        <Kpi label="测试项" value={report.summary.phases} />
-        <Kpi label="总体通过率" value={`${totalRate}%`} color={totalRate >= 100 ? '#16a34a' : totalRate >= 60 ? '#d97706' : '#dc2626'} />
-        <Kpi label="通过 / 失败 / N/A" value={`${report.summary.passed} / ${report.summary.failed} / ${report.summary.na}`} />
-        <Kpi label="C2PA 检出" value={report.summary.c2paDetected} color={report.summary.c2paDetected ? '#16a34a' : undefined} />
-        <Kpi label="SynthID 检出" value={report.summary.synthIdDetected} color={report.summary.synthIdDetected ? '#0891b2' : undefined} />
-        <Kpi label="在线验签次数" value={report.summary.onlineChecked} />
-      </div>
-
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 12 }}
-        message="列表按模型展示；展开后查看每个测试项的图片、参数检查与 C2PA / SynthID 结果。"
-        description="图片按上游原始字节保存，未重新编码；本地 C2PA 只判断元数据是否存在，完整验签请使用 Adobe / OpenAI / Azure 在线校验。签名缺失不等于造假。"
-      />
-
       <Table
         rowKey={m => `${m.targetId}:${m.model}`}
         size="small"
@@ -384,13 +359,7 @@ export default function ImageDetectionReportView({
         ]}
       />
 
-      <Alert
-        style={{ marginTop: 14 }}
-        type="info"
-        showIcon
-        message="如何解读签名结果"
-        description={<ul style={{ margin: 0, paddingLeft: 18 }}>{(report.notes || []).map((n, i) => <li key={i}>{n}</li>)}</ul>}
-      />
+      <NotesCollapse notes={report.notes} />
     </div>
   )
 }

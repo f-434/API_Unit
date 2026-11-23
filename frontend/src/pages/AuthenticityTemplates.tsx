@@ -49,27 +49,15 @@ export default function AuthenticityTemplates() {
   return (
     <>
       <PageHeader
-        title={<Space><FileDoneOutlined /> 真实性用例模板</Space>}
-        subtitle="用真实捕获的一条请求/响应作为模板来更新判定条件。所有修改只新增版本，历史版本永久保留；必须显式发布才会生效。"
+        title={<Space><FileDoneOutlined /> 真实性用例</Space>}
         extra={[
           <Input key="probe" allowClear placeholder="按 probeId 过滤" value={probeId} onChange={e => setProbeId(e.target.value)} style={{ width: 260 }} />,
           <Space key="arch" size={4}><Switch checked={includeArchived} onChange={setIncludeArchived} /> 显示已归档</Space>,
           <Button key="refresh" icon={<ReloadOutlined />} loading={isFetching} onClick={() => refetch()}>刷新</Button>,
         ]}
       />
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 14 }}
-        message="变更规则"
-        description={<ul style={{ margin: 0, paddingLeft: 18 }}>
-          <li>从测试记录生成模板时只会创建<b>草稿</b>，不会影响正在运行的测试。</li>
-          <li>发布一个版本会自动归档同一 probe/provider 的旧 active 版本，旧版本仍保留可查。</li>
-          <li>模板 spec 只包含状态码、JSONPath 期望、包含文本和 usage 规则；发布前请核对。</li>
-        </ul>}
-      />
       {grouped.length === 0 && !isLoading && (
-        <div className="panel"><InboxOutlined /> 还没有模板。打开任意真实性测试，在检查项上点“以此请求为模板”。</div>
+        <div className="panel"><InboxOutlined /> 暂无模板</div>
       )}
       {grouped.map(([key, list]) => (
         <div className="panel" key={key}>

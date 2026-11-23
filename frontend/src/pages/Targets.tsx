@@ -148,9 +148,9 @@ export default function Targets() {
           >
             取模型
           </Button>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Button size="small" icon={<EditOutlined />} title="编辑上游" onClick={() => openEdit(r)} />
           <Popconfirm title="删除该上游？" description="不会删除历史测试记录。" onConfirm={() => del.mutate(r.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
+            <Button size="small" danger icon={<DeleteOutlined />} title="删除上游" />
           </Popconfirm>
         </Space>
       ),
@@ -160,8 +160,7 @@ export default function Targets() {
   return (
     <>
       <PageHeader
-        title="上游 / 供应商"
-        subtitle="保存 New API 或其他 OpenAI 兼容网关的地址与密钥；密钥使用本机 AES-256-GCM 加密存储，接口只返回掩码。"
+        title="上游"
         extra={[
           <Input
             key="q"
@@ -212,7 +211,7 @@ export default function Targets() {
           columns={columns as any}
           pagination={false}
           rowSelection={{ selectedRowKeys: selectedKeys, onChange: keys => setSelectedKeys(keys) }}
-          locale={{ emptyText: q.trim() ? '没有匹配的上游。' : '还没有上游，点击右上角添加。' }}
+          locale={{ emptyText: q.trim() ? '无匹配上游' : '暂无上游' }}
         />
       </div>
 

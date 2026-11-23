@@ -9,7 +9,6 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Layout, Menu, Spin, Tag, Tooltip } from "antd";
 import {
-  ApiOutlined,
   AppstoreOutlined,
   BugOutlined,
   CloudServerOutlined,
@@ -21,7 +20,6 @@ import {
   SafetyCertificateOutlined,
   SettingOutlined,
   ThunderboltOutlined,
-  DollarOutlined,
   DiffOutlined,
   PictureOutlined,
 } from "@ant-design/icons";
@@ -58,7 +56,7 @@ const menuItems = [
   { key: "/image-detection/new", icon: <PictureOutlined />, label: "生图检测" },
   { key: "/runs", icon: <HistoryOutlined />, label: "测试历史" },
   { type: "divider" as const },
-  { key: "/targets", icon: <CloudServerOutlined />, label: "上游 / 供应商" },
+  { key: "/targets", icon: <CloudServerOutlined />, label: "上游" },
   { key: "/prompts", icon: <AppstoreOutlined />, label: "提示词库" },
   { key: "/attacks", icon: <ExperimentOutlined />, label: "攻击用例" },
   // { key: '/prices', icon: <DollarOutlined />, label: '模型定价' },
@@ -122,16 +120,6 @@ function Shell({ children }: { children: React.ReactNode }) {
     return [];
   }, [location.pathname]);
 
-  const pageTitle = useMemo(() => {
-    const p = location.pathname;
-    if (p === "/") return "概览";
-    if (p.startsWith("/runs/")) return "测试详情";
-    const hit = menuItems.find(
-      (i) => "key" in i && i.key !== "/" && p.startsWith(String(i.key)),
-    );
-    return hit && "label" in hit ? String(hit.label) : "概览";
-  }, [location.pathname]);
-
   const logout = async () => {
     await api.logout();
     await qc.invalidateQueries({ queryKey: ["authStatus"] });
@@ -152,7 +140,6 @@ function Shell({ children }: { children: React.ReactNode }) {
           <div className="logo">AU</div>
           <div className="brand-text">
             <div className="name">API Unit</div>
-            <div className="sub">LLM 接口测试台</div>
           </div>
         </div>
         <div className="app-menu-wrap">
@@ -165,22 +152,11 @@ function Shell({ children }: { children: React.ReactNode }) {
             onClick={({ key }) => navigate(key)}
           />
         </div>
-        <div className="sider-foot">
-          v{meta?.version || "1.0.0"} · 独立运行
-          <br />
-        </div>
+        <div className="sider-foot">v{meta?.version || "1.0.0"}</div>
       </Sider>
       <Layout className="app-main">
         <Header className="app-header">
-          <div className="left">
-            <span className="crumb-home">控制台</span>
-            <span className="crumb-sep">/</span>
-            <span className="crumb-current">{pageTitle}</span>
-          </div>
           <div className="right">
-            <span className="header-env">
-              <ApiOutlined /> New API / OpenAI 兼容
-            </span>
             {auth?.authEnabled ? (
               <Tag color="green">已启用访问密码</Tag>
             ) : (

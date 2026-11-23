@@ -9,7 +9,7 @@ import {
   DeleteOutlined, PlusOutlined, PlayCircleOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
-import { PageHeader } from '../components/common'
+import { PageHeader, SummaryLine } from '../components/common'
 import { ModelMultiSelect, TargetSelect, useTargets } from '../components/TargetModel'
 import type { AuthenticityHostedConfig } from '../types'
 
@@ -121,10 +121,7 @@ export default function AuthenticityNew() {
 
   return (
     <>
-      <PageHeader
-        title={<Space><SafetyCertificateOutlined /> 新建模型真实性测试</Space>}
-        subtitle="默认使用「设置」中统一保存的工具调用检测（MCP / 网页搜索）；多个模型可按并发和测试次数执行，结果统一进入测试详情。"
-      />
+      <PageHeader title={<Space><SafetyCertificateOutlined /> 新建模型真实性测试</Space>} />
       <Form
         form={form}
         layout="vertical"
@@ -135,7 +132,7 @@ export default function AuthenticityNew() {
         }}
       >
         <div className="panel">
-          <div className="panel-title">1. 测试目标（可勾选多个模型）</div>
+          <div className="panel-title">1. 测试目标</div>
           {rows.map((row, i) => (
             <div className="case-card" key={i}>
               <Row gutter={[10, 10]} align="middle">
@@ -181,24 +178,20 @@ export default function AuthenticityNew() {
                 </Col>
               </Row>
               {row.targetId && row.models.length === 0 && (
-                <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>请选择至少一个模型；模型列表可点击下拉框右侧刷新。</div>
+                <div className="muted" style={{ marginTop: 8, fontSize: 12 }}>请选择模型</div>
               )}
             </div>
           ))}
           <Button type="dashed" block icon={<PlusOutlined />} onClick={() => setRows(prev => [...prev, emptyRow()])}>
             添加上游
           </Button>
-          <div className="muted" style={{ marginTop: 10, fontSize: 12 }}>
-            每个模型每轮运行：接口指纹 + 响应来源 + 模型身份 + 数据一致性 + 工具调用检测；“测试次数”表示每个模型完整重复几轮。
-            当前已选 <b>{modelCount}</b> 个模型 × <b>{repetitions}</b> 次 = <b>{modelCount * Number(repetitions)}</b> 次测试，按并发数同时调度。
-          </div>
         </div>
 
         <div className="panel">
           <div className="panel-title">2. 检测项与并发</div>
           <Row gutter={[16, 10]}>
             <Col xs={12} lg={4}><Form.Item name="concurrency" label="模型并发"><InputNumber min={1} max={16} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} lg={4}><Form.Item name="repetitions" label="测试次数" extra="每个模型完整跑几轮"><InputNumber min={1} max={5} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col xs={12} lg={4}><Form.Item name="repetitions" label="测试次数"><InputNumber min={1} max={5} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="timeoutSec" label="单请求超时（秒）"><InputNumber min={10} max={900} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="maxRetries" label="最大重试"><InputNumber min={0} max={5} style={{ width: '100%' }} /></Form.Item></Col>
             <Col xs={12} lg={4}><Form.Item name="backoffMs" label="退避基数 ms"><InputNumber min={0} max={60000} style={{ width: '100%' }} /></Form.Item></Col>
@@ -221,54 +214,30 @@ export default function AuthenticityNew() {
               </Tag.CheckableTag>
             ))}
           </Space>
-          <Alert
-            style={{ marginTop: 12 }}
-            type="info"
-            showIcon
-            message="N/A 不算失败"
-            description="目标/模型不支持某个探针时记为 N/A，不参与通过率，也不判为仿冒。分词器对比默认关闭，开启后也只作为参考证据。"
-          />
         </div>
 
         <div className="panel">
           <div className="panel-title" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-            <span>3. 工具调用情况（统一配置）</span>
-            <Button size="small" onClick={() => navigate('/settings')}>去设置修改</Button>
+            <span>3. 工具调用</span>
+            <Button size="small" onClick={() => navigate('/settings')}>去设置</Button>
           </div>
           <Row gutter={[14, 6]} align="middle">
             <Col xs={12} lg={5}>
-              <Form.Item name="hostedEnabled" label="本次启用工具调用检测" valuePropName="checked" style={{ marginBottom: 0 }}>
+              <Form.Item name="hostedEnabled" label="本次启用" valuePropName="checked" style={{ marginBottom: 0 }}>
                 <Switch />
               </Form.Item>
             </Col>
             <Col xs={12} lg={5}>
-              <Form.Item name="hostedTimeoutSec" label="工具调用超时（秒）" style={{ marginBottom: 0 }}>
+              <Form.Item name="hostedTimeoutSec" label="超时（秒）" style={{ marginBottom: 0 }}>
                 <InputNumber min={30} max={900} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col xs={24} lg={14}>
-              <Space wrap>
-                <Tag color={hostedReady ? 'green' : 'default'}>
-                  {hostedReady ? '已配置' : '未配置'}
-                </Tag>
-                <Tag>Profile: {hostedSettings?.profile || 'generic'}</Tag>
-                <Tag>MCP: {hostedSettings?.mcp?.serverUrl || '-'}</Tag>
-                <Tag>证明域名: {hostedSettings?.proof?.domain || hostedSettings?.legacy?.domain || '-'}</Tag>
-                <span className="muted" style={{ fontSize: 12 }}>
-                  保存到设置后，新建测试默认按此配置启用，无需每次重填。
-                </span>
-              </Space>
+              <Tag color={hostedReady ? 'green' : 'default'}>
+                {hostedReady ? '已配置' : '未配置'}
+              </Tag>
             </Col>
           </Row>
-          {!hostedReady && (
-            <Alert
-              style={{ marginTop: 10 }}
-              type="warning"
-              showIcon
-              message="工具调用检测尚未配置"
-              description="到「设置 → 模型真实性 / 工具调用」填写 MCP Server URL、headers 与证明域名；配置保存后这里会默认启用。未配置时保持关闭即可，本地随机挑战仍会执行。"
-            />
-          )}
           {!!hostedEnabled && !hostedReady && (
             <Alert
               style={{ marginTop: 10 }}
@@ -281,12 +250,11 @@ export default function AuthenticityNew() {
         </div>
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <Space wrap>
-            <Tag color="cyan">模型 {modelCount}</Tag>
-            <Tag color="purple">测试 {modelCount * Number(repetitions)} 次</Tag>
-            <Tag color="blue">并发 {concurrency || 3}</Tag>
-            <Tag color="gold">工具调用 {hostedEnabled ? '启用' : '关闭'}</Tag>
-          </Space>
+          <SummaryLine items={[
+            { label: '模型', value: modelCount },
+            { label: '测试', value: `${modelCount * Number(repetitions)} 次` },
+            { label: '并发', value: concurrency || 3 },
+          ]} />
           <Tooltip title={modelCount ? '' : '请先选择上游和模型'}>
             <Button type="primary" size="large" icon={<PlayCircleOutlined />} loading={submitting} disabled={!modelCount} onClick={submit}>
               启动真实性检测

@@ -97,21 +97,12 @@ export default function AuthenticityHostedSettings({ embedded = false }: { embed
 
   const body = (
     <div>
-      {!embedded && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="统一配置，一次保存后新建真实性测试默认使用"
-          description="这里保存的 MCP / 证明页配置会加密写入 SQLite；新建模型真实性测试时默认勾选“启用工具调用检测”，无需每次重新填写。"
-        />
-      )}
       <Collapse
         ghost
         style={{ marginBottom: 8 }}
         items={[{
           key: 'import',
-          label: '从 JSON 导入配置（可粘贴完整 MCP / 证明页配置）',
+          label: '从 JSON 导入',
           children: (
             <div>
               <Input.TextArea
@@ -145,7 +136,7 @@ export default function AuthenticityHostedSettings({ embedded = false }: { embed
           />
         </Col>
         <Col xs={24} lg={15}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>适用协议（保存后作为新建测试的默认值）</div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>适用协议</div>
           <Space>
             {(['openai', 'claude', 'gemini'] as const).map(p => (
               <Tag.CheckableTag
@@ -183,7 +174,7 @@ export default function AuthenticityHostedSettings({ embedded = false }: { embed
           <Input value={hosted.mcp.serverDescription || ''} onChange={e => setHosted(h => ({ ...h, mcp: { ...h.mcp, serverDescription: e.target.value } }))} />
         </Col>
         <Col xs={24} lg={12}>
-          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>MCP Headers（JSON；值可用 **** 保留已保存的密钥）</div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>MCP Headers（JSON，**** 保留已保存值）</div>
           <Input.TextArea
             className="code-input"
             autoSize={{ minRows: 4, maxRows: 10 }}
@@ -249,10 +240,7 @@ export default function AuthenticityHostedSettings({ embedded = false }: { embed
       </Row>
 
       <Space style={{ marginTop: 14 }}>
-        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>保存工具调用配置</Button>
-        <span className="muted" style={{ fontSize: 12 }}>
-          当前配置：{hosted.mcp.serverUrl ? `MCP ${hosted.mcp.serverUrl}` : '未配置 MCP'} · {hosted.proof.domain || hosted.legacy.domain || '未配置证明域名'}
-        </span>
+        <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>保存配置</Button>
       </Space>
     </div>
   )
