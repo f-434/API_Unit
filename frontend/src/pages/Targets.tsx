@@ -1,6 +1,7 @@
+import ScrollTable from '../components/ScrollTable'
 import { useMemo, useState, type Key } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Popconfirm, Space, Table, Tag, message } from 'antd'
+import { Button, Input, Popconfirm, Space, Tag, message } from 'antd'
 import {
   CloudDownloadOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
@@ -204,7 +205,7 @@ export default function Targets() {
         ]}
       />
       <div className="panel">
-        <Table
+        <ScrollTable
           rowKey="id"
           loading={isLoading}
           dataSource={filtered}

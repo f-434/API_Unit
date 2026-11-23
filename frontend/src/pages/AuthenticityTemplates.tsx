@@ -1,7 +1,8 @@
+import ScrollTable from '../components/ScrollTable'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Drawer, Input, Popconfirm, Space, Switch, Table, Tag, message,
+  Alert, Button, Drawer, Input, Popconfirm, Space, Switch, Tag, message,
 } from 'antd'
 import { EyeOutlined, FileDoneOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -62,7 +63,7 @@ export default function AuthenticityTemplates() {
       {grouped.map(([key, list]) => (
         <div className="panel" key={key}>
           <div className="panel-title">{key}</div>
-          <Table
+          <ScrollTable
             size="small"
             rowKey="id"
             pagination={false}

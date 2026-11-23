@@ -1,6 +1,8 @@
+import ScrollTable from '../components/ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Form, Input, InputNumber, Modal, Popconfirm, Space, Table, Tag, message } from 'antd'
+import { Button, Form, Input, InputNumber, Modal, Popconfirm, Space, Tag, message } from 'antd'
 import { DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import type { Price } from '../types'
@@ -64,7 +66,7 @@ export default function Prices() {
         extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新建价格</Button>}
       />
       <div className="panel">
-        <Table rowKey="id" loading={isLoading} dataSource={data} columns={cols as any} pagination={{ pageSize: 20 }} />
+        <ScrollTable rowKey="id" loading={isLoading} dataSource={data} columns={cols as any} pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }} />
       </div>
       <Modal open={open} title={editing ? '编辑价格' : '新建价格'} onCancel={() => setOpen(false)} onOk={() => form.submit()} confirmLoading={save.isPending} destroyOnClose>
         <Form form={form} layout="vertical" onFinish={v => save.mutate(v)}>

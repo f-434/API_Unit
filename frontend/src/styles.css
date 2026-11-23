@@ -129,7 +129,38 @@ a { color: #165dff; }
 .case-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .form-hint { color: #86909c; font-size: 12px; }
 .code-input textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; line-height: 1.5; }
-.scroll-x { overflow-x: auto; }
+/* 宽表格：顶部加一条与底部原生滚动条同步的代理条，方便回到任意横向位置。 */
+.scroll-table { min-width: 0; }
+.scroll-table-top {
+  display: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: #f7f8fa;
+  scrollbar-width: thin;
+  scrollbar-color: #c9cdd4 transparent;
+}
+.scroll-table-top.is-visible { display: block; }
+.scroll-table-top-inner { height: 1px; }
+.scroll-table-top::-webkit-scrollbar { height: 10px; }
+.scroll-table-top::-webkit-scrollbar-thumb { background: #c9cdd4; border-radius: 8px; }
+.scroll-table-top::-webkit-scrollbar-thumb:hover { background: #adb4bf; }
+.scroll-table-top::-webkit-scrollbar-track { background: transparent; }
+.scroll-table .ant-table-content,
+.scroll-table .ant-table-body {
+  scrollbar-width: thin;
+  scrollbar-color: #c9cdd4 transparent;
+}
+.scroll-table .ant-table-content::-webkit-scrollbar,
+.scroll-table .ant-table-body::-webkit-scrollbar { height: 10px; }
+.scroll-table .ant-table-content::-webkit-scrollbar-thumb,
+.scroll-table .ant-table-body::-webkit-scrollbar-thumb { background: #c9cdd4; border-radius: 8px; }
+.scroll-table .ant-table-content::-webkit-scrollbar-thumb:hover,
+.scroll-table .ant-table-body::-webkit-scrollbar-thumb:hover { background: #adb4bf; }
+.scroll-table .ant-table-content::-webkit-scrollbar-track,
+.scroll-table .ant-table-body::-webkit-scrollbar-track { background: transparent; }
 /* Dense result table: keep one-line rows so long previews/errors do not
    stretch row height and hurt scanning. */
 .items-table .ant-table-thead > tr > th { padding-top: 5px !important; padding-bottom: 5px !important; }

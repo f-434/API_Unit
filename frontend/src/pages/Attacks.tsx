@@ -1,7 +1,9 @@
+import ScrollTable from '../components/ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  AutoComplete, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, message,
+  AutoComplete, Button, Form, Input, Modal, Popconfirm, Select, Space, Switch, Tag, message,
 } from 'antd'
 import { DeleteOutlined, DownloadOutlined, EditOutlined, ImportOutlined, PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -136,7 +138,7 @@ export default function Attacks() {
         ]}
       />
       <div className="panel">
-        <Table rowKey="id" loading={isLoading} dataSource={filtered} columns={columns as any} pagination={{ pageSize: 20, showSizeChanger: true }} />
+        <ScrollTable rowKey="id" loading={isLoading} dataSource={filtered} columns={columns as any} pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }} />
       </div>
 
       <Modal open={open} title={editing ? '编辑攻击用例' : '新建攻击用例'} onCancel={() => setOpen(false)} onOk={() => form.submit()} confirmLoading={save.isPending} width={820} destroyOnClose>

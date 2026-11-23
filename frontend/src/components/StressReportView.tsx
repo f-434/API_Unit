@@ -1,4 +1,5 @@
-import { Alert, Progress, Space, Table, Tag, Tooltip } from 'antd'
+import ScrollTable from './ScrollTable'
+import { Alert, Progress, Space, Tag, Tooltip } from 'antd'
 import type { Aggregate, HistBucket, Live, ModelAggregate, ModelLive, SeriesPoint } from '../types'
 import { EmptyPanel, Kpi, ProtocolTag, ResponseModelCell } from './common'
 import { BarChart, DonutChart, SeriesCharts } from './charts'
@@ -98,7 +99,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
 
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="panel-title">模型对比</div>
-        <Table
+        <ScrollTable
           rowKey="model"
           size="small"
           pagination={false}
@@ -146,7 +147,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="panel-title">错误分组</div>
         {errors.length ? (
-          <Table
+          <ScrollTable
             rowKey={(r, i) => `${r.count}-${i}`}
             size="small"
             dataSource={errors}
@@ -164,7 +165,7 @@ export default function StressReportView({ aggregate, models, live, config }: {
       {!!live?.recent?.length && (
         <div className="panel">
           <div className="panel-title">最近请求</div>
-          <Table
+          <ScrollTable
             rowKey="index"
             size="small"
             pagination={false}

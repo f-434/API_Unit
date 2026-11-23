@@ -1,7 +1,9 @@
+import ScrollTable from './ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Alert, Button, Descriptions, Drawer, Image, Input, Select, Space, Switch, Table, Tabs, Tag, Tooltip, Typography,
+  Alert, Button, Descriptions, Drawer, Image, Input, Select, Space, Switch, Tabs, Tag, Tooltip, Typography,
 } from 'antd'
 import { EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -88,7 +90,7 @@ export function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; it
           {!!it.checks?.length && (
             <div className="panel" style={{ marginBottom: 14 }}>
               <div className="panel-title">确定性检查</div>
-              <Table
+              <ScrollTable
                 size="small"
                 rowKey={(_, i) => String(i)}
                 pagination={false}
@@ -167,7 +169,7 @@ export function ItemDrawer({ runId, itemId, open, onClose }: { runId: string; it
 
 export default function RunItems({ runId, kind, models = [], polling = false }: { runId: string; kind: string; models?: string[]; polling?: boolean }) {
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(200)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [model, setModel] = useState<string>()
   const [onlyFail, setOnlyFail] = useState(false)
   const [verdict, setVerdict] = useState<string>()
@@ -188,7 +190,6 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
 
   const columns: any[] = [
     { title: '#', dataIndex: 'index', width: 58, render: (_: any, it: Item) => <span className="muted">{it.index + 1}</span> },
-    { title: '时间', dataIndex: 'startedAt', width: 150, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
     ...(kind === 'authenticity' ? [{ title: '轮次', dataIndex: 'repetition', width: 70, render: (v: number) => v ? <Tag>第 {v} 次</Tag> : '-' }] : []),
     { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono">{v}</span> },
     {
@@ -224,6 +225,7 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         </Tooltip>
       ),
     },
+    { title: '测试时间', dataIndex: 'startedAt', width: 150, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
     { title: '', width: 48, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} title="查看详情" onClick={() => openDetail(it)} /> },
   ]
 
@@ -240,7 +242,7 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         <Tag>{data?.total ?? 0} 条</Tag>
         {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
-      <Table
+      <ScrollTable
         rowKey="id"
         className="items-table"
         size="small"
@@ -250,7 +252,7 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         scroll={{ x: 1840 }}
         pagination={{
           current: page, pageSize, total: data?.total || 0,
-          showSizeChanger: true, pageSizeOptions: [200, 500],
+          showSizeChanger: true, pageSizeOptions: PAGE_SIZE_OPTIONS,
           onChange: (p, ps) => { setPage(p); setPageSize(ps) },
         }}
         onRow={it => ({ onDoubleClick: () => openDetail(it), style: { cursor: 'pointer' } })}

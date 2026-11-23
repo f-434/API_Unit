@@ -1,6 +1,7 @@
+import ScrollTable from '../components/ScrollTable'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Button, Table, Tag } from 'antd'
+import { Alert, Button, Tag } from 'antd'
 import {
   BugOutlined, DiffOutlined, FileSearchOutlined, ThunderboltOutlined,
   SafetyCertificateOutlined, PictureOutlined,
@@ -83,7 +84,7 @@ export default function Dashboard() {
 
       <div className="panel">
         <div className="panel-title">最近测试</div>
-        <Table
+        <ScrollTable
           rowKey="id"
           size="small"
           dataSource={runs?.items || []}

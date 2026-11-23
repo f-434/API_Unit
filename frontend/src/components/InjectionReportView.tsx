@@ -1,4 +1,6 @@
-import { Alert, Space, Table, Tag } from 'antd'
+import ScrollTable from './ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
+import { Alert, Space, Tag } from 'antd'
 import type { InjectionReport, Live } from '../types'
 import { EmptyPanel, Kpi, NotesCollapse, ResponseModelCell, SeverityTag, VerdictTag } from './common'
 import { BarChart, DonutChart } from './charts'
@@ -75,7 +77,7 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
       {report?.targets?.length ? (
         <div className="panel" style={{ marginBottom: 14 }}>
           <div className="panel-title">目标风险</div>
-          <Table
+          <ScrollTable
             rowKey="targetIndex"
             size="small"
             pagination={false}
@@ -101,7 +103,7 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
       {report?.categories?.length ? (
         <div className="panel" style={{ marginBottom: 14 }}>
           <div className="panel-title">分类风险</div>
-          <Table
+          <ScrollTable
             rowKey="category"
             size="small"
             pagination={false}
@@ -121,14 +123,14 @@ export default function InjectionReportView({ report, live }: { report?: Injecti
       {report?.cases?.length ? (
         <div className="panel" style={{ marginBottom: 14 }}>
           <div className="panel-title">用例结果</div>
-          <Table
+          <ScrollTable
             rowKey="attackId"
             size="small"
             dataSource={report.cases}
-            pagination={{ pageSize: 200 }}
+            pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }}
             expandable={{
               expandedRowRender: row => (
-                <Table
+                <ScrollTable
                   rowKey="targetIndex"
                   size="small"
                   pagination={false}

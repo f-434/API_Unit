@@ -1,7 +1,9 @@
+import ScrollTable from './ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
-  Alert, Button, Col, Input, Row, Select, Segmented, Space, Table, Tag, Tooltip, Typography, message,
+  Alert, Button, Col, Input, Row, Select, Segmented, Space, Tag, Tooltip, Typography, message,
 } from 'antd'
 import { DiffOutlined, DownloadOutlined, EyeOutlined, HistoryOutlined, SearchOutlined } from '@ant-design/icons'
 import { api, download } from '../api'
@@ -26,7 +28,7 @@ function snapshotLabel(s: Snapshot, currentRunId: string) {
 
 export function SnapshotTable({ runId, report, polling = false }: { runId: string; report?: RequestDiffReport; polling?: boolean }) {
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(200)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [caseId, setCaseId] = useState<string>()
   const [model, setModel] = useState<string>()
   const [q, setQ] = useState('')
@@ -51,13 +53,13 @@ export function SnapshotTable({ runId, report, polling = false }: { runId: strin
         <Tag color="blue">{data?.total ?? 0} 份快照（当前任务）</Tag>
         {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
-      <Table
+      <ScrollTable
         rowKey="id"
         size="small"
         loading={isLoading}
         dataSource={data?.items || []}
         scroll={{ x: 1200 }}
-        pagination={{ current: page, pageSize, total: data?.total || 0, showSizeChanger: true, pageSizeOptions: [200, 500], onChange: (p, ps) => { setPage(p); setPageSize(ps) } }}
+        pagination={{ current: page, pageSize, total: data?.total || 0, showSizeChanger: true, pageSizeOptions: PAGE_SIZE_OPTIONS, onChange: (p, ps) => { setPage(p); setPageSize(ps) } }}
         columns={[
           { title: 'ID', dataIndex: 'id', width: 70 },
           { title: '请求时间', dataIndex: 'requestTimeMs', width: 160, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
@@ -120,13 +122,13 @@ export function FindingsTable({ runId, polling = false }: { runId: string; polli
         <Tag color="red">线索 {rows.length}</Tag>
         {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
-      <Table
+      <ScrollTable
         rowKey={(r, i) => `${r.snapshot.id}-${i}`}
         size="small"
         loading={isLoading}
         dataSource={rows}
         scroll={{ x: 1300 }}
-        pagination={{ pageSize: 200 }}
+        pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }}
         columns={[
           { title: '级别', dataIndex: 'severity', width: 80, render: (v: string) => <SeverityTag severity={v} /> },
           { title: '分类', dataIndex: 'category', width: 140, render: (v: string) => <Tag>{categoryLabel(v)}</Tag> },
@@ -285,7 +287,7 @@ export function DiffPanel({ runId, polling = false }: { runId: string; polling?:
             />
             <div className="panel">
               <div className="panel-title">关键分区指纹</div>
-              <Table
+              <ScrollTable
                 size="small"
                 rowKey="name"
                 pagination={false}
@@ -325,11 +327,11 @@ export function DiffPanel({ runId, polling = false }: { runId: string; polling?:
                 <Button size="small" icon={<DownloadOutlined />} onClick={() => download(api.exportDiffUrl(leftId!, rightId!, mode, 'json'))}>导出 JSON</Button>
               </Space>
             </div>
-            <Table
+            <ScrollTable
               rowKey={(r, i) => `${r.path}-${i}`}
               size="small"
               dataSource={result.result.changes}
-              pagination={{ pageSize: 200 }}
+              pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }}
               scroll={{ x: 1200 }}
               onRow={r => ({ onClick: () => setActivePath(r.path), style: { cursor: 'pointer' } })}
               rowClassName={r => r.path === activePath ? 'ant-table-row-selected' : ''}

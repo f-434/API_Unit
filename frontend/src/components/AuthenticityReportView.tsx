@@ -1,7 +1,8 @@
+import ScrollTable from './ScrollTable'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Alert, Button, Descriptions, Input, Modal, Progress, Space, Spin, Table, Tabs, Tag, Tooltip, message,
+  Alert, Button, Descriptions, Input, Modal, Progress, Space, Spin, Tabs, Tag, Tooltip, message,
 } from 'antd'
 import { CodeOutlined, EyeOutlined, FileAddOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -402,7 +403,7 @@ export default function AuthenticityReportView({
           <Kpi label="当前模型" value={live?.currentModel || '-'} />
         </div>
         {models.length === 0 ? <EmptyPanel text="真实性检测运行中，等待第一批模型数据…" /> : (
-          <Table
+          <ScrollTable
             rowKey={m => `${m.targetId}:${m.model}:${m.repetition}`}
             size="small"
             dataSource={models}
@@ -479,7 +480,7 @@ export default function AuthenticityReportView({
         <Button size="small" onClick={() => setExpandedKeys([])}>收起全部</Button>
       </Space>
 
-      <Table
+      <ScrollTable
         rowKey="key"
         size="small"
         dataSource={rows}

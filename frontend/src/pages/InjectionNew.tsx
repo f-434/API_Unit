@@ -1,8 +1,10 @@
+import ScrollTable from '../components/ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Col, Form, Input, InputNumber, Row, Segmented, Select, Space, Switch, Table, Tag, message,
+  Alert, Button, Col, Form, Input, InputNumber, Row, Segmented, Select, Space, Switch, Tag, message,
 } from 'antd'
 import { PlayCircleOutlined } from '@ant-design/icons'
 import { api } from '../api'
@@ -109,12 +111,12 @@ export default function InjectionNew() {
             <Button size="small" onClick={() => setSelected([])}>清空</Button>
             <Tag color="purple">已选 {selected.length} / {attacks.length}</Tag>
           </Space>
-          <Table
+          <ScrollTable
             rowKey="id"
             size="small"
             loading={attacksLoading}
             dataSource={filtered}
-            pagination={{ pageSize: 8, showSizeChanger: false }}
+            pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }}
             rowSelection={{ selectedRowKeys: selected, onChange: keys => setSelected(keys as string[]) }}
             columns={[
               { title: '用例', dataIndex: 'name', width: 230 },

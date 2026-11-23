@@ -1,4 +1,6 @@
-import { Space, Table, Tag, Typography } from 'antd'
+import ScrollTable from './ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
+import { Space, Tag, Typography } from 'antd'
 import type { AuditCell, AuditReport } from '../types'
 import { Kpi, EmptyPanel, NotesCollapse, ResponseModelCell, VerdictTag } from './common'
 import {
@@ -85,7 +87,7 @@ export default function AuditReportView({ report, showCharts = true, hideSummary
 
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="panel-title">目标汇总</div>
-        <Table
+        <ScrollTable
           rowKey="targetIndex"
           size="small"
           pagination={false}
@@ -132,20 +134,18 @@ export default function AuditReportView({ report, showCharts = true, hideSummary
 
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="panel-title">提示词 × 目标矩阵</div>
-        <div className="scroll-x">
-          <Table
-            rowKey="promptId"
-            size="small"
-            pagination={false}
-            dataSource={report.prompts}
-            columns={[
-              { title: '提示词', dataIndex: 'promptName', width: 190, fixed: 'left' },
-              { title: '基线 Token', dataIndex: 'baselineInput', width: 110, fixed: 'left', render: (v: number) => fmtNum(v, 0) },
-              ...targetCols,
-            ] as any}
-            scroll={{ x: 400 + targetCols.length * 220 }}
-          />
-        </div>
+        <ScrollTable
+          rowKey="promptId"
+          size="small"
+          pagination={false}
+          dataSource={report.prompts}
+          columns={[
+            { title: '提示词', dataIndex: 'promptName', width: 190, fixed: 'left' },
+            { title: '基线 Token', dataIndex: 'baselineInput', width: 110, fixed: 'left', render: (v: number) => fmtNum(v, 0) },
+            ...targetCols,
+          ] as any}
+          scroll={{ x: 400 + targetCols.length * 220 }}
+        />
       </div>
 
       <div className="panel" style={{ marginBottom: 14 }}>
@@ -153,11 +153,11 @@ export default function AuditReportView({ report, showCharts = true, hideSummary
         {report.anomalies.length === 0 ? (
           <span className="muted">未发现超过阈值的异常</span>
         ) : (
-          <Table
+          <ScrollTable
             rowKey={(r, i) => `${r.promptId}-${r.targetLabel}-${i}`}
             size="small"
             dataSource={report.anomalies}
-            pagination={{ pageSize: 200 }}
+            pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }}
             columns={[
               { title: '提示词', dataIndex: 'promptName', width: 190 },
               { title: '目标', width: 190, render: (_: any, r) => <span>{r.targetLabel} <span className="muted small-mono">{r.model}</span></span> },

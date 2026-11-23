@@ -1,5 +1,7 @@
+import ScrollTable from './ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useQuery } from '@tanstack/react-query'
-import { Descriptions, Drawer, Table, Tabs, Tag, Typography } from 'antd'
+import { Descriptions, Drawer, Tabs, Tag, Typography } from 'antd'
 import { api } from '../api'
 import type { SnapshotDetail } from '../types'
 import { EmptyPanel, JsonBlock, SeverityTag, CopyButton } from './common'
@@ -35,7 +37,7 @@ export default function SnapshotDrawer({ id, open, onClose }: { id?: number; ope
 
           <div className="panel" style={{ marginBottom: 12 }}>
             <div className="panel-title">分区指纹（SHA-256）</div>
-            <Table
+            <ScrollTable
               size="small"
               rowKey="key"
               pagination={false}
@@ -53,10 +55,10 @@ export default function SnapshotDrawer({ id, open, onClose }: { id?: number; ope
               {
                 key: 'findings', label: `隐藏指令线索 (${sn.findings.length})`,
                 children: sn.findings.length ? (
-                  <Table
+                  <ScrollTable
                     size="small"
                     rowKey={(_, i) => String(i)}
-                    pagination={{ pageSize: 200 }}
+                    pagination={{ pageSize: DEFAULT_PAGE_SIZE, pageSizeOptions: PAGE_SIZE_OPTIONS, showSizeChanger: true }}
                     dataSource={sn.findings}
                     columns={[
                       { title: '级别', dataIndex: 'severity', width: 80, render: (v: string) => <SeverityTag severity={v} /> },

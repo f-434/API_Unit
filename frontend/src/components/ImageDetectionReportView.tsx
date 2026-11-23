@@ -1,5 +1,6 @@
+import ScrollTable from './ScrollTable'
 import {
-  Alert, Button, Col, Collapse, Descriptions, Image, Row, Space, Table, Tag, Tooltip, message,
+  Alert, Button, Col, Collapse, Descriptions, Image, Row, Space, Tag, Tooltip, message,
 } from 'antd'
 import { DownloadOutlined, LinkOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import type {
@@ -207,7 +208,7 @@ function PhaseBlock({ phase }: { phase: ImageDetectionPhase }) {
           )}
         </Col>
         <Col xs={24} lg={16}>
-          <Table
+          <ScrollTable
             size="small"
             rowKey={(_, i) => String(i)}
             pagination={false}
@@ -266,7 +267,7 @@ export default function ImageDetectionReportView({
           <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="在线验签配置读取失败" description={String(live.extra.imageDetectionSettingsError)} />
         )}
         {models.length === 0 ? <EmptyPanel text="生图检测运行中，等待第一批模型数据…" /> : (
-          <Table
+          <ScrollTable
             rowKey={m => `${m.targetId}:${m.model}`}
             size="small"
             dataSource={models}
@@ -312,7 +313,7 @@ export default function ImageDetectionReportView({
 
   return (
     <div>
-      <Table
+      <ScrollTable
         rowKey={m => `${m.targetId}:${m.model}`}
         size="small"
         dataSource={rows}

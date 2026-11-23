@@ -1,7 +1,9 @@
+import ScrollTable from '../components/ScrollTable'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
+import { Button, Popconfirm, Select, Space, Tag, message } from 'antd'
 import { DeleteOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import type { RunRow } from '../types'
@@ -14,7 +16,7 @@ export default function History() {
   const [kind, setKind] = useState<string>()
   const [status, setStatus] = useState<string>()
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(200)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['runs', kind, status, page, pageSize],
     queryFn: () => api.runs({ kind, status, limit: pageSize, offset: (page - 1) * pageSize }),
@@ -76,7 +78,7 @@ export default function History() {
         ]}
       />
       <div className="panel">
-        <Table
+        <ScrollTable
           rowKey="id"
           size="small"
           loading={isLoading}
@@ -86,7 +88,7 @@ export default function History() {
           onRow={r => ({ onClick: () => navigate(`/runs/${r.id}`), style: { cursor: 'pointer' } })}
           pagination={{
             current: page, pageSize, total: data?.total || 0,
-            showSizeChanger: true, pageSizeOptions: [200, 500],
+            showSizeChanger: true, pageSizeOptions: PAGE_SIZE_OPTIONS,
             onChange: (p, ps) => { setPage(p); setPageSize(ps) },
           }}
         />

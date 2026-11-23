@@ -1,6 +1,7 @@
+import ScrollTable from '../components/ScrollTable'
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Descriptions, InputNumber, Popconfirm, Space, Table, Tag, message } from 'antd'
+import { Alert, Button, Descriptions, InputNumber, Popconfirm, Space, Tag, message } from 'antd'
 import { CloudDownloadOutlined, DeleteOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { EllipsisText, PageHeader } from '../components/common'
@@ -138,7 +139,7 @@ export default function Settings() {
             分词器目录 <span className="small-mono">{tokenizerDir}</span>
           </div>
         )}
-        <Table
+        <ScrollTable
           rowKey="name"
           size="small"
           pagination={false}
