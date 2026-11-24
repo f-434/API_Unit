@@ -183,7 +183,8 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 ### 5.2 Token 审计
 
 - 多目标 × 多提示词 × 重复次数，矩阵展示。
-- 每个目标可单独选择分词器策略：
+- 同一个上游可一次选择多个模型；提交时按模型展开为独立目标，报告、基线与异常判定和手工逐行添加完全等价。展开后的模型总数仍受 12 个目标上限约束。
+- 每个渠道行可单独选择分词器策略；同一行的多个模型共享该设置，需要不同策略时拆成多行：
   - `auto`：OpenAI → tiktoken；Gemini → 本地 SentencePiece；Claude → 启发式
   - `tiktoken`：内置 `o200k_base` / `cl100k_base`，离线可用
   - `gemini`：官方 Gemma 3 / Gemma 2 SentencePiece 模型（首次下载并 SHA-256 校验；CDN / GitHub 官方源 / 代理镜像依次回退）

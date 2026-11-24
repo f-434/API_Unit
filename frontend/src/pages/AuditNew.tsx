@@ -13,6 +13,22 @@ import { fmtInt } from '../format'
 
 type TokenEstimate = { tokens: number; source: string; error?: string }
 
+type AuditTarget = {
+  targetId: string
+  model: string
+  protocol: string
+  tokenizer: string
+  label?: string
+}
+
+// 多模型行追加模型名，保证报告图表与异常列表中的目标可区分；
+// 单模型行保持用户填写的标签，未填写时交给后端生成默认“目标 N”。
+function expandLabel(label: string | undefined, modelCount: number, model: string): string | undefined {
+  const base = (label || '').trim()
+  if (modelCount <= 1) return base || undefined
+  return base ? `${base} · ${model}` : undefined
+}
+
 export default function AuditNew() {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -41,10 +57,19 @@ export default function AuditNew() {
     [promptIds, promptMap],
   )
 
-  const validTargets = useMemo(
-    () => targets.map((t, ti) => ({ ...t, ti })).filter(t => t.targetId && t.model),
-    [targets],
-  )
+  // 一个渠道可配置多个模型；这里展开成独立的“渠道 × 模型”目标。
+  // 后端与报告仍按单模型目标处理，语义与手工逐行添加完全一致。
+  const validTargets = useMemo(() => {
+    const out: (TargetRow & { ti: number; model: string })[] = []
+    targets.forEach((t, ti) => {
+      if (!t.targetId) return
+      for (const raw of t.models || []) {
+        const model = raw.trim()
+        if (model) out.push({ ...t, ti, model })
+      }
+    })
+    return out
+  }, [targets])
 
   // Seed drafts for newly selected prompts while preserving in-progress edits.
   // If the prompt library is still loading we leave the key unset so the
@@ -75,7 +100,7 @@ export default function AuditNew() {
         const content = drafts[p.id] ?? p.content
         if (!content.trim()) continue
         const strategy = t.tokenizer === 'online' ? 'auto' : (t.tokenizer || 'auto')
-        jobs.push({ key: `${t.ti}:${p.id}`, targetId: t.targetId, model: t.model, strategy, content })
+        jobs.push({ key: `${t.ti}:${t.model}:${p.id}`, targetId: t.targetId, model: t.model, strategy, content })
       }
     }
     if (!jobs.length) {
@@ -114,13 +139,13 @@ export default function AuditNew() {
       let missing = false
       let errored = 0
       const rows = validTargets.map(t => {
-        const e = estimates[`${t.ti}:${p.id}`]
+        const e = estimates[`${t.ti}:${t.model}:${p.id}`]
         const failed = !!e?.error
         if (!e) missing = true
         else if (failed) { errored++; missing = true }
         else tokens += e.tokens
         return {
-          key: `${t.ti}`,
+          key: `${t.ti}:${t.model}`,
           label: t.label || `目标 ${t.ti + 1}`,
           model: t.model,
           tokens: failed || !e ? 0 : e.tokens,
@@ -166,11 +191,31 @@ export default function AuditNew() {
   }
 
   const submit = async (v: any) => {
-    const rows = (v.targets || []).filter((t: TargetRow) => t.targetId && t.model)
-    if (!rows.length) return message.error('请至少配置一个有效的对比目标')
+    const rows = (v.targets || []) as TargetRow[]
+    // 展开为“渠道 × 模型”目标；后端配置结构保持不变。
+    const expanded: AuditTarget[] = []
+    for (const t of rows) {
+      if (!t.targetId) continue
+      const models = (t.models || []).map(m => m.trim()).filter(Boolean)
+      for (const model of models) {
+        expanded.push({
+          targetId: t.targetId,
+          model,
+          protocol: t.protocol || 'auto',
+          tokenizer: t.tokenizer || 'auto',
+          label: expandLabel(t.label, models.length, model),
+        })
+      }
+    }
+    if (!expanded.length) return message.error('请至少配置一个有效的对比目标')
     if (!(v.promptIds || []).length) return message.error('请选择至少一个审计提示词')
     const empty = selectedPrompts.find(p => !(drafts[p.id] ?? p.content).trim())
     if (empty) return message.error(`提示词「${empty.name}」内容不能为空`)
+    // 与后端 Validate 的上限保持一致，避免保存提示词后才发现配置不可用。
+    if (expanded.length > 12) return message.error(`展开后共 ${expanded.length} 个模型，超过 12 个目标上限`)
+    const reps = Number(v.repetitions) > 0 ? Number(v.repetitions) : 3
+    const totalPlanned = expanded.length * (v.promptIds || []).length * reps
+    if (totalPlanned > 100000) return message.error(`预计请求 ${totalPlanned} 次，超过 100000 上限`)
     const dirty = selectedPrompts.filter(p => (drafts[p.id] ?? p.content) !== p.content)
     setSubmitting(true)
     try {
@@ -187,10 +232,7 @@ export default function AuditNew() {
         qc.invalidateQueries({ queryKey: ['prompts'] })
       }
       const config = {
-        targets: rows.map((t: TargetRow) => ({
-          targetId: t.targetId, model: t.model, protocol: t.protocol || 'auto',
-          tokenizer: t.tokenizer || 'auto', label: t.label || undefined,
-        })),
+        targets: expanded,
         promptIds: v.promptIds,
         repetitions: v.repetitions,
         maxOutputTokens: v.maxOutputTokens,
@@ -229,7 +271,7 @@ export default function AuditNew() {
         layout="vertical"
         onFinish={submit}
         initialValues={{
-          targets: [{ targetId: '', model: '', label: '', tokenizer: 'auto', protocol: 'auto' }],
+          targets: [{ targetId: '', model: '', models: [], label: '', tokenizer: 'auto', protocol: 'auto' }],
           promptIds: [], repetitions: 3, maxOutputTokens: 512, temperature: 0, stream: false,
           concurrency: 4, timeoutSec: 120, anomalyThresholdPct: 10, baseline: 'min', checkLocal: true,
           maxRetries: 0, backoffMs: 500, maxBackoffMs: 5000, retryOn429: true, retryOn5xx: true, retryOnNetwork: true,
@@ -238,7 +280,7 @@ export default function AuditNew() {
         <div className="panel">
           <div className="panel-title">1. 对比目标</div>
           <Form.Item name="targets" rules={[{ required: true }]}>
-            <TargetRowsEditor tokenizers={meta?.tokenizerStrategies || []} showTokenizer />
+            <TargetRowsEditor tokenizers={meta?.tokenizerStrategies || []} showTokenizer multiModel />
           </Form.Item>
         </div>
 
@@ -288,7 +330,7 @@ export default function AuditNew() {
                 let missing = false
                 let errored = 0
                 for (const t of validTargets) {
-                  const e = estimates[`${t.ti}:${p.id}`]
+                  const e = estimates[`${t.ti}:${t.model}:${p.id}`]
                   if (!e) { missing = true; continue }
                   if (e.error) { errored++; missing = true; continue }
                   tokens += e.tokens
@@ -365,7 +407,12 @@ export default function AuditNew() {
 
         <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <SummaryLine items={[
-            { label: '目标', value: validTargets.length },
+            {
+              label: '目标',
+              value: validTargets.length > 12
+                ? <span style={{ color: '#dc2626' }}>{validTargets.length}</span>
+                : validTargets.length,
+            },
             { label: '提示词', value: promptIds.length },
             { label: '重复', value: reps },
             { label: '预计请求', value: planned },

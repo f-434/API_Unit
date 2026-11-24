@@ -104,28 +104,34 @@ export function ModelMultiSelect({ targetId, value, onChange }: {
 
 export interface TargetRow {
   targetId: string
+  /** 单模型模式使用。 */
   model: string
+  /** 多模型模式使用；单模型模式忽略。 */
+  models?: string[]
   label?: string
   tokenizer?: string
   protocol?: string
 }
 
-function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, onChange, onRemove }: {
+function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, multiModel, onChange, onRemove }: {
   row: TargetRow
   index: number
   targets: Target[]
   tokenizers: { id: string; label: string }[]
   showTokenizer: boolean
+  multiModel: boolean
   onChange: (row: TargetRow) => void
   onRemove: () => void
 }) {
   const setTarget = (targetId: string) => {
     const t = targets.find(x => x.id === targetId)
+    const changed = row.targetId !== targetId
     onChange({
       ...row,
       targetId,
       label: row.label || (t ? `${t.name}` : ''),
-      model: row.targetId === targetId ? row.model : '',
+      model: changed ? '' : row.model,
+      models: changed ? [] : (row.models || []),
     })
   }
   return (
@@ -135,7 +141,15 @@ function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, onChang
           <TargetSelect value={row.targetId} onChange={setTarget} targets={targets} placeholder={`目标 ${index + 1}`} />
         </Col>
         <Col xs={24} lg={6}>
-          <ModelAutoComplete targetId={row.targetId} value={row.model} onChange={v => onChange({ ...row, model: v })} />
+          {multiModel ? (
+            <ModelMultiSelect
+              targetId={row.targetId}
+              value={row.models || []}
+              onChange={v => onChange({ ...row, models: v || [] })}
+            />
+          ) : (
+            <ModelAutoComplete targetId={row.targetId} value={row.model} onChange={v => onChange({ ...row, model: v })} />
+          )}
         </Col>
         <Col xs={12} lg={3}>
           <Input value={row.label} onChange={e => onChange({ ...row, label: e.target.value })} placeholder="对比标签" />
@@ -166,14 +180,20 @@ function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, onChang
   )
 }
 
-export function TargetRowsEditor({ value = [], onChange = () => {}, tokenizers = [], showTokenizer = true }: {
+export function TargetRowsEditor({ value = [], onChange = () => {}, tokenizers = [], showTokenizer = true, multiModel = false }: {
   value?: TargetRow[]
   onChange?: (rows: TargetRow[]) => void
   tokenizers?: { id: string; label: string }[]
   showTokenizer?: boolean
+  /** 同一上游可选择多个模型；提交时由页面展开为多个目标。 */
+  multiModel?: boolean
 }) {
   const { data: targets = [] } = useTargets()
-  const rows = useMemo(() => (value && value.length ? value : [{ targetId: '', model: '', label: '', tokenizer: 'auto', protocol: 'auto' }]), [value])
+  const newRow = (): TargetRow => ({
+    targetId: '', model: '', models: multiModel ? [] : undefined,
+    label: '', tokenizer: 'auto', protocol: 'auto',
+  })
+  const rows = useMemo(() => (value && value.length ? value : [newRow()]), [value, multiModel])
   const update = (i: number, row: TargetRow) => {
     const next = rows.slice()
     next[i] = row
@@ -190,11 +210,12 @@ export function TargetRowsEditor({ value = [], onChange = () => {}, tokenizers =
           targets={targets}
           tokenizers={tokenizers}
           showTokenizer={showTokenizer}
+          multiModel={multiModel}
           onChange={r => update(i, r)}
           onRemove={() => remove(i)}
         />
       ))}
-      <Button type="dashed" block icon={<PlusOutlined />} onClick={() => onChange([...rows, { targetId: '', model: '', label: '', tokenizer: 'auto', protocol: 'auto' }])}>
+      <Button type="dashed" block icon={<PlusOutlined />} onClick={() => onChange([...rows, newRow()])}>
         添加对比目标
       </Button>
     </div>
