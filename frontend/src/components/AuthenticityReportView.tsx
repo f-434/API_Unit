@@ -1,10 +1,11 @@
 import ScrollTable from './ScrollTable'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Descriptions, Input, Modal, Progress, Space, Spin, Tabs, Tag, Tooltip, message,
+  Alert, Button, Descriptions, Input, Modal, Popconfirm, Progress, Space, Spin, Tabs, Tag, Tooltip, message,
 } from 'antd'
-import { CodeOutlined, EyeOutlined, FileAddOutlined } from '@ant-design/icons'
+import { CodeOutlined, EyeOutlined, FileAddOutlined, ReloadOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import type {
   AuthenticityCheck, AuthenticityLiveModel, AuthenticityModelReport, AuthenticityReport, Live,
@@ -297,13 +298,48 @@ export default function AuthenticityReportView({
   const [expandedKeys, setExpandedKeys] = useState<string[]>([])
   const [tplModal, setTplModal] = useState<any>({ open: false })
   const [tplSaving, setTplSaving] = useState(false)
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const [retesting, setRetesting] = useState(false)
   const navigate = useNavigate()
+  const qc = useQueryClient()
 
   const rows = useMemo(() => report ? buildExecRows(report) : [], [report])
 
   useEffect(() => {
     setExpandedKeys([])
   }, [report])
+
+  // 切换测试时清空勾选，避免把上一个测试的模型带到重测请求里。
+  useEffect(() => {
+    setSelectedKeys([])
+  }, [runId])
+
+  // 多轮次的行会映射到同一个模型，重测请求按“上游 + 模型”去重。
+  const selectedModels = useMemo(() => {
+    const keys = new Set(selectedKeys)
+    const seen = new Map<string, { targetId: string; model: string }>()
+    for (const r of rows) {
+      if (!keys.has(r.key)) continue
+      const k = `${r.targetId}:${r.model}`
+      if (!seen.has(k)) seen.set(k, { targetId: r.targetId, model: r.model })
+    }
+    return [...seen.values()]
+  }, [rows, selectedKeys])
+
+  const retest = async () => {
+    if (!selectedModels.length) return
+    setRetesting(true)
+    try {
+      const res = await api.retestRun(runId, selectedModels)
+      message.success(`已按原配置启动重测：${res.models} 个模型`)
+      qc.invalidateQueries({ queryKey: ['runs'] })
+      navigate(`/runs/${res.id}`)
+    } catch (e: any) {
+      message.error(e?.message || '启动重测失败')
+    } finally {
+      setRetesting(false)
+    }
+  }
 
   const openCheck = async (model: AuthenticityModelReport, check: AuthenticityCheck) => {
     if (!check.caseId) {
@@ -475,9 +511,22 @@ export default function AuthenticityReportView({
 
   return (
     <div>
-      <Space style={{ marginBottom: 10 }}>
+      <Space style={{ marginBottom: 10 }} wrap>
         <Button size="small" onClick={() => setExpandedKeys(rows.map(r => r.key))}>展开全部</Button>
         <Button size="small" onClick={() => setExpandedKeys([])}>收起全部</Button>
+        {selectedModels.length > 0 && (
+          <Popconfirm
+            title={`按原配置重测选中的 ${selectedModels.length} 个模型？`}
+            description="只保留勾选的模型；检测项、并发、超时和重复次数沿用原测试。"
+            okText="开始重测"
+            cancelText="取消"
+            onConfirm={retest}
+          >
+            <Button size="small" type="primary" icon={<ReloadOutlined />} loading={retesting}>
+              重测选中 ({selectedModels.length})
+            </Button>
+          </Popconfirm>
+        )}
       </Space>
 
       <ScrollTable
@@ -485,6 +534,10 @@ export default function AuthenticityReportView({
         size="small"
         dataSource={rows}
         pagination={false}
+        rowSelection={{
+          selectedRowKeys: selectedKeys,
+          onChange: keys => setSelectedKeys(keys.map(String)),
+        }}
         scroll={{ x: 1280 }}
         expandable={{
           expandedRowKeys: expandedKeys,

@@ -1,13 +1,21 @@
 import ScrollTable from './ScrollTable'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import {
-  Alert, Button, Col, Collapse, Descriptions, Image, Row, Space, Tag, Tooltip, message,
+  Alert, Button, Col, Collapse, Descriptions, Image, Popconfirm, Row, Space, Tag, Tooltip, message,
 } from 'antd'
-import { DownloadOutlined, LinkOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
+import { DownloadOutlined, LinkOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
+import { api } from '../api'
 import type {
   ImageDetectionImage, ImageDetectionLiveModel, ImageDetectionModelReport, ImageDetectionPhase,
   ImageDetectionReport, Live,
 } from '../types'
 import { EmptyPanel, JsonBlock, Kpi, NotesCollapse } from './common'
+
+function modelRowKey(m: ImageDetectionModelReport): string {
+  return `${m.targetId}:${m.model}`
+}
 
 const statusColor: Record<string, string> = { pass: 'green', fail: 'red', warn: 'gold', na: 'default' }
 const statusText: Record<string, string> = { pass: '通过', fail: '失败', warn: '警告', na: 'N/A' }
@@ -247,7 +255,15 @@ export default function ImageDetectionReportView({
   runId: string
   live?: Live
 }) {
-  void runId
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const [retesting, setRetesting] = useState(false)
+
+  // 切换测试时清空勾选，避免把上一个测试的模型带到重测请求里。
+  useEffect(() => {
+    setSelectedKeys([])
+  }, [runId])
 
   if (!report || !report.summary) {
     const done = Number(live?.extra?.imageDetectionDone || 0)
@@ -310,14 +326,52 @@ export default function ImageDetectionReportView({
   }
 
   const rows = (report.models || []) as ImageDetectionModelReport[]
+  const selected = new Set(selectedKeys)
+  const selectedModels = rows
+    .filter(m => selected.has(modelRowKey(m)))
+    .map(m => ({ targetId: m.targetId, model: m.model }))
+
+  const retest = async () => {
+    if (!selectedModels.length) return
+    setRetesting(true)
+    try {
+      const res = await api.retestRun(runId, selectedModels)
+      message.success(`已按原配置启动重测：${res.models} 个模型`)
+      qc.invalidateQueries({ queryKey: ['runs'] })
+      navigate(`/runs/${res.id}`)
+    } catch (e: any) {
+      message.error(e?.message || '启动重测失败')
+    } finally {
+      setRetesting(false)
+    }
+  }
 
   return (
     <div>
+      {selectedModels.length > 0 && (
+        <Space style={{ marginBottom: 10 }} wrap>
+          <Popconfirm
+            title={`按原配置重测选中的 ${selectedModels.length} 个模型？`}
+            description="只保留勾选的模型；测试项、并发、超时等沿用原测试。"
+            okText="开始重测"
+            cancelText="取消"
+            onConfirm={retest}
+          >
+            <Button size="small" type="primary" icon={<ReloadOutlined />} loading={retesting}>
+              重测选中 ({selectedModels.length})
+            </Button>
+          </Popconfirm>
+        </Space>
+      )}
       <ScrollTable
-        rowKey={m => `${m.targetId}:${m.model}`}
+        rowKey={modelRowKey}
         size="small"
         dataSource={rows}
         pagination={false}
+        rowSelection={{
+          selectedRowKeys: selectedKeys,
+          onChange: keys => setSelectedKeys(keys.map(String)),
+        }}
         scroll={{ x: 1100 }}
         expandable={{
           expandedRowRender: m => (

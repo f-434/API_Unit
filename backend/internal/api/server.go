@@ -107,6 +107,7 @@ func (s *Server) Router() http.Handler {
 		pr.Get("/api/runs/{id}", s.handleRunGet)
 		pr.Delete("/api/runs/{id}", s.handleRunDelete)
 		pr.Post("/api/runs/{id}/stop", s.handleRunStop)
+		pr.Post("/api/runs/{id}/retest", s.handleRunRetest)
 		pr.Get("/api/runs/{id}/items", s.handleRunItems)
 		pr.Get("/api/runs/{id}/items/{itemID}", s.handleRunItem)
 		pr.Get("/api/runs/{id}/events", s.handleRunEvents)

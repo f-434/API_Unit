@@ -217,6 +217,140 @@ func numeric(v any) float64 {
 	return 0
 }
 
+// retestSelection 是二次测试的勾选粒度：一个上游下的一个模型。
+type retestSelection struct {
+	TargetID string `json:"targetId"`
+	Model    string `json:"model"`
+}
+
+// handleRunRetest 按原测试配置克隆一次新测试，只保留勾选的模型。
+// 检测项、并发、重试、超时、repetitions 等其它字段全部原样复用。
+func (s *Server) handleRunRetest(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	src, err := s.store.GetRun(id)
+	if err != nil {
+		apiError(w, http.StatusNotFound, "测试不存在")
+		return
+	}
+	if s.manager.Session(id) != nil {
+		apiError(w, http.StatusConflict, "原测试仍在运行，请结束后再重测")
+		return
+	}
+	var req struct {
+		Selections []retestSelection `json:"selections"`
+	}
+	if err := decodeLenient(r, &req, 1<<20); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	filtered, models, err := filterRetestConfig(src.Kind, json.RawMessage(src.Config), req.Selections)
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	run, err := s.manager.Start(src.Kind, filtered)
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"id": run.ID, "run": run, "models": models})
+}
+
+// filterRetestConfig 返回只包含勾选模型的原配置副本。
+// 这里使用 map 而非各模块的配置结构体，避免模块以后新增字段时被重测逻辑丢弃。
+func filterRetestConfig(kind model.RunKind, raw json.RawMessage, sels []retestSelection) (json.RawMessage, int, error) {
+	switch kind {
+	case model.KindAuthenticity, model.KindImageDetection:
+	default:
+		return nil, 0, fmt.Errorf("该测试类型不支持二次测试")
+	}
+
+	// targetId -> 勾选的模型集合
+	wanted := make(map[string]map[string]bool)
+	for _, sel := range sels {
+		tid := strings.TrimSpace(sel.TargetID)
+		name := strings.TrimSpace(sel.Model)
+		if tid == "" || name == "" {
+			continue
+		}
+		set := wanted[tid]
+		if set == nil {
+			set = map[string]bool{}
+			wanted[tid] = set
+		}
+		set[name] = true
+	}
+	if len(wanted) == 0 {
+		return nil, 0, fmt.Errorf("请选择要重测的模型")
+	}
+
+	var cfg map[string]any
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return nil, 0, fmt.Errorf("原测试配置解析失败: %w", err)
+	}
+	targets, ok := cfg["targets"].([]any)
+	if !ok {
+		return nil, 0, fmt.Errorf("原测试配置缺少 targets")
+	}
+
+	keptTargets := make([]any, 0, len(targets))
+	kept := 0
+	for _, item := range targets {
+		target, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		tid, _ := target["targetId"].(string)
+		set := wanted[strings.TrimSpace(tid)]
+		if len(set) == 0 {
+			continue
+		}
+		models, ok := target["models"].([]any)
+		if !ok {
+			continue
+		}
+		next := make([]any, 0, len(models))
+		switch kind {
+		case model.KindAuthenticity:
+			// 模型真实性的 targets[].models 是字符串数组。
+			for _, m := range models {
+				name, ok := m.(string)
+				if ok && set[strings.TrimSpace(name)] {
+					next = append(next, m)
+				}
+			}
+		case model.KindImageDetection:
+			// 生图检测的 targets[].models 是 {name,kind,size} 对象。
+			for _, m := range models {
+				obj, ok := m.(map[string]any)
+				if !ok {
+					continue
+				}
+				name, _ := obj["name"].(string)
+				if set[strings.TrimSpace(name)] {
+					next = append(next, m)
+				}
+			}
+		}
+		if len(next) == 0 {
+			continue
+		}
+		target["models"] = next
+		keptTargets = append(keptTargets, target)
+		kept += len(next)
+	}
+	if kept == 0 {
+		return nil, 0, fmt.Errorf("勾选的模型不在原测试配置中")
+	}
+
+	cfg["targets"] = keptTargets
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, 0, fmt.Errorf("生成重测配置失败: %w", err)
+	}
+	return out, kept, nil
+}
+
 func (s *Server) handleRunDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if s.manager.Session(id) != nil {

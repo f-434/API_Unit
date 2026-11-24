@@ -110,6 +110,8 @@ export const api = {
   },
   run: (id: string) => get<RunView>(`/api/runs/${id}`),
   stopRun: (id: string) => post<{ ok: boolean }>(`/api/runs/${id}/stop`),
+  retestRun: (id: string, selections: { targetId: string; model: string }[]) =>
+    post<{ id: string; run: Run; models: number }>(`/api/runs/${id}/retest`, { selections }),
   deleteRun: (id: string) => del<{ ok: boolean }>(`/api/runs/${id}`),
   items: (id: string, params: Record<string, string | number | boolean | undefined>) => {
     const q = new URLSearchParams()
