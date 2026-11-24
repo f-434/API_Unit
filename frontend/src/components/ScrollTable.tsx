@@ -59,6 +59,10 @@ export default function ScrollTable<T extends object = any>(props: TableProps<T>
     top.addEventListener('scroll', onTopScroll, { passive: true })
     const ro = new ResizeObserver(schedule)
     ro.observe(table)
+    // 拖拽列宽会改变内部 table 的宽度；只观察外层容器无法感知这种变化，
+    // 顶部代理滚动条会停留在旧的滚动范围里。
+    const innerTable = table.querySelector('table')
+    if (innerTable) ro.observe(innerTable)
     const mo = new MutationObserver(schedule)
     mo.observe(table, { childList: true, subtree: true })
 

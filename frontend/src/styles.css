@@ -166,6 +166,34 @@ a { color: #165dff; }
 .items-table .ant-table-thead > tr > th { padding-top: 5px !important; padding-bottom: 5px !important; }
 .items-table .ant-table-tbody > tr > td { padding-top: 3px !important; padding-bottom: 3px !important; line-height: 1.35; white-space: nowrap; }
 .items-table .ant-table-tbody > tr > td.ant-table-cell-ellipsis { overflow: hidden; text-overflow: ellipsis; }
+
+/* 结果明细列宽拖拽：手柄贴住表头右边缘，双击恢复默认宽度。 */
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 3;
+}
+.col-resizer::after {
+  content: '';
+  position: absolute;
+  top: 25%;
+  bottom: 25%;
+  right: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: #d9dce1;
+  transition: background .15s;
+}
+.col-resizer:hover::after,
+.col-resizer:focus-visible::after,
+body.col-resizing .col-resizer::after { background: #1677ff; }
+.col-resizer:focus-visible { outline: none; }
+body.col-resizing { cursor: col-resize; user-select: none; }
 .ant-card { box-shadow: 0 1px 2px rgba(15, 23, 42, .02); }
 .ant-card .ant-card-head { border-bottom-color: #f0f1f3; }
 

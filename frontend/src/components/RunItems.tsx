@@ -1,4 +1,5 @@
 import ScrollTable from './ScrollTable'
+import ResizableTable from './ResizableTable'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -191,13 +192,13 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
   const columns: any[] = [
     { title: '#', dataIndex: 'index', width: 58, render: (_: any, it: Item) => <span className="muted">{it.index + 1}</span> },
     ...(kind === 'authenticity' ? [{ title: '轮次', dataIndex: 'repetition', width: 70, render: (v: number) => v ? <Tag>第 {v} 次</Tag> : '-' }] : []),
-    { title: '模型', dataIndex: 'model', width: 190, render: (v: string) => <span className="mono">{v}</span> },
+    { title: '模型', dataIndex: 'model', width: 190, ellipsis: true, render: (v: string) => <span className="mono">{v}</span> },
     {
       title: '响应模型', key: 'responseModel', width: 200,
       render: (_: any, it: Item) => <ResponseModelCell requested={it.model} models={[actualModel(it)]} />,
     },
-    { title: '上游', dataIndex: 'targetName', width: 120, render: (v: string) => v || '-' },
-    ...(kind !== 'stress' ? [{ title: '用例', dataIndex: 'caseName', width: 170 }] : []),
+    { title: '上游', dataIndex: 'targetName', width: 160, ellipsis: true, render: (v: string) => v || '-' },
+    ...(kind !== 'stress' ? [{ title: '用例', dataIndex: 'caseName', width: 170, ellipsis: true }] : []),
     ...(kind === 'injection' ? [{ title: '判定', dataIndex: 'verdict', width: 100, render: (v: string) => <VerdictTag verdict={v} /> }] : []),
     ...(kind === 'authenticity' ? [{
       title: '检查', dataIndex: 'verdict', width: 90,
@@ -226,7 +227,7 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
       ),
     },
     { title: '测试时间', dataIndex: 'startedAt', width: 150, render: (v: number) => <span className="muted">{fmtTime(v)}</span> },
-    { title: '', width: 48, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} title="查看详情" onClick={() => openDetail(it)} /> },
+    { title: '', width: 48, resizable: false, render: (_: any, it: Item) => <Button size="small" type="text" icon={<EyeOutlined />} title="查看详情" onClick={() => openDetail(it)} /> },
   ]
 
   return (
@@ -242,14 +243,15 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         <Tag>{data?.total ?? 0} 条</Tag>
         {polling && isFetching && <Tag color="processing">更新中</Tag>}
       </Space>
-      <ScrollTable
+      <ResizableTable
+        key={kind}
+        storageKey={`apiunit:items-cols:v1:${kind}`}
         rowKey="id"
         className="items-table"
         size="small"
         loading={isLoading}
         dataSource={data?.items || []}
         columns={columns}
-        scroll={{ x: 1840 }}
         pagination={{
           current: page, pageSize, total: data?.total || 0,
           showSizeChanger: true, pageSizeOptions: PAGE_SIZE_OPTIONS,
