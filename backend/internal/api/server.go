@@ -82,6 +82,10 @@ func (s *Server) Router() http.Handler {
 		pr.Delete("/api/prompts/{id}", s.handlePromptDelete)
 		pr.Post("/api/prompts/import", s.handlePromptsImport)
 		pr.Get("/api/prompts/export", s.handlePromptsExport)
+		pr.Post("/api/prompts/{id}/token-reference", s.handlePromptTokenReference)
+
+		pr.Get("/api/token-families", s.handleTokenFamiliesGet)
+		pr.Put("/api/token-families", s.handleTokenFamiliesSave)
 
 		pr.Get("/api/attacks", s.handleAttacksList)
 		pr.Post("/api/attacks", s.handleAttackCreate)

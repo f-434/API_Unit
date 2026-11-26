@@ -70,6 +70,29 @@ a { color: #165dff; }
 .tokenizer-error { white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto; font-size: 12px; line-height: 1.6; }
 .panel + .panel { margin-top: 16px; }
 .panel-title { font-weight: 650; font-size: 14px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; color: #1d2129; }
+.caliber-tree { border: 1px solid #e5e6eb; border-radius: 10px; overflow: hidden; }
+.caliber-head {
+  display: grid; grid-template-columns: minmax(0, 1fr) 190px 92px; gap: 12px;
+  padding: 7px 14px; background: #fafbfc; border-bottom: 1px solid #e5e6eb;
+  color: #86909c; font-size: 12px;
+}
+.caliber-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 190px 92px; gap: 12px;
+  align-items: center; padding: 4px 14px; border-bottom: 1px solid #f2f3f5;
+}
+.caliber-row:hover { background: #f7f8fa; }
+.caliber-name.ant-input { background: transparent; border-color: transparent; padding-left: 6px; }
+.caliber-row:hover .caliber-name.ant-input,
+.caliber-name.ant-input:hover,
+.caliber-name.ant-input:focus { background: #fff; border-color: #d9d9d9; }
+.caliber-row[data-depth="0"] .caliber-name.ant-input { font-weight: 600; }
+.caliber-key {
+  justify-self: start; background: #f2f3f5; border-radius: 4px; padding: 1px 6px;
+  font-size: 11.5px; color: #4e5969;
+}
+.caliber-actions { display: flex; justify-content: flex-end; gap: 2px; }
+.caliber-children { margin-left: 18px; padding-left: 12px; border-left: 1px solid #dcdfe6; }
+.caliber-empty { padding: 16px 14px; }
 .muted { color: #86909c; font-size: 12.5px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
 .small-mono { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }

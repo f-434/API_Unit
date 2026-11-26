@@ -24,6 +24,8 @@ type TargetInfo struct {
 	Protocol model.Protocol
 	// ModelsPath 可选：自定义模型列表接口，支持相对路径或完整 URL。
 	ModelsPath string
+	// TokenFamily 是渠道所属的 Token 口径路径，用于匹配手工 Token 基准。
+	TokenFamily string
 }
 
 // ContentPart represents one multimodal part. Type is one of text, image,

@@ -18,11 +18,12 @@ func ResolveTarget(st *store.Store, id string) (protocol.TargetInfo, error) {
 		return protocol.TargetInfo{}, fmt.Errorf("目标不存在或读取失败: %w", err)
 	}
 	return protocol.TargetInfo{
-		ID:       t.ID,
-		Name:     t.Name,
-		BaseURL:  t.BaseURL,
-		APIKey:   t.APIKey,
-		Protocol: t.Protocol,
+		ID:          t.ID,
+		Name:        t.Name,
+		BaseURL:     t.BaseURL,
+		APIKey:      t.APIKey,
+		Protocol:    t.Protocol,
+		TokenFamily: t.TokenFamily,
 	}, nil
 }
 

@@ -113,10 +113,19 @@ export interface TargetRow {
   protocol?: string
 }
 
-function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, multiModel, onChange, onRemove }: {
+// 根据渠道的 Token 口径推导本地分词器；未标注或无法识别时回退自动。
+export function tokenizerForCaliber(tokenFamily?: string): string {
+  const root = (tokenFamily || '').split('/')[0].trim().toLowerCase()
+  if (['gemini', 'google'].includes(root)) return 'gemini'
+  if (['gpt', 'openai', 'azure', 'az'].includes(root)) return 'tiktoken'
+  return 'auto'
+}
+
+function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, autoFromTarget, multiModel, onChange, onRemove }: {
   row: TargetRow
   index: number
   targets: Target[]
+  autoFromTarget: boolean
   tokenizers: { id: string; label: string }[]
   showTokenizer: boolean
   multiModel: boolean
@@ -132,15 +141,20 @@ function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, multiMo
       label: row.label || (t ? `${t.name}` : ''),
       model: changed ? '' : row.model,
       models: changed ? [] : (row.models || []),
+      // 审计场景下协议与分词器由渠道配置自动映射，同时保留在表单值里供提交使用。
+      ...(autoFromTarget && t ? {
+        protocol: t.protocol || 'auto',
+        tokenizer: tokenizerForCaliber(t.tokenFamily),
+      } : {}),
     })
   }
   return (
     <div className="case-card">
       <Row gutter={[10, 10]} align="middle">
-        <Col xs={24} lg={6}>
+        <Col xs={24} lg={autoFromTarget ? 9 : 6}>
           <TargetSelect value={row.targetId} onChange={setTarget} targets={targets} placeholder={`目标 ${index + 1}`} />
         </Col>
-        <Col xs={24} lg={6}>
+        <Col xs={24} lg={autoFromTarget ? 9 : 6}>
           {multiModel ? (
             <ModelMultiSelect
               targetId={row.targetId}
@@ -151,18 +165,20 @@ function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, multiMo
             <ModelAutoComplete targetId={row.targetId} value={row.model} onChange={v => onChange({ ...row, model: v })} />
           )}
         </Col>
-        <Col xs={12} lg={3}>
+        <Col xs={12} lg={autoFromTarget ? 4 : 3}>
           <Input value={row.label} onChange={e => onChange({ ...row, label: e.target.value })} placeholder="对比标签" />
         </Col>
-        <Col xs={12} lg={3}>
-          <Select
-            value={row.protocol || 'auto'}
-            onChange={v => onChange({ ...row, protocol: v })}
-            options={['auto', 'openai', 'claude', 'gemini'].map(p => ({ value: p, label: protocolLabel(p) }))}
-            style={{ width: '100%' }}
-          />
-        </Col>
-        {showTokenizer && (
+        {!autoFromTarget && (
+          <Col xs={12} lg={3}>
+            <Select
+              value={row.protocol || 'auto'}
+              onChange={v => onChange({ ...row, protocol: v })}
+              options={['auto', 'openai', 'claude', 'gemini'].map(p => ({ value: p, label: protocolLabel(p) }))}
+              style={{ width: '100%' }}
+            />
+          </Col>
+        )}
+        {!autoFromTarget && showTokenizer && (
           <Col xs={12} lg={4}>
             <Select
               value={row.tokenizer || 'auto'}
@@ -180,11 +196,13 @@ function TargetRowItem({ row, index, targets, tokenizers, showTokenizer, multiMo
   )
 }
 
-export function TargetRowsEditor({ value = [], onChange = () => {}, tokenizers = [], showTokenizer = true, multiModel = false }: {
+export function TargetRowsEditor({ value = [], onChange = () => {}, tokenizers = [], showTokenizer = true, autoFromTarget = false, multiModel = false }: {
   value?: TargetRow[]
   onChange?: (rows: TargetRow[]) => void
   tokenizers?: { id: string; label: string }[]
   showTokenizer?: boolean
+  /** 协议与分词器由所选的渠道自动映射，不再手选。 */
+  autoFromTarget?: boolean
   /** 同一上游可选择多个模型；提交时由页面展开为多个目标。 */
   multiModel?: boolean
 }) {
@@ -210,6 +228,7 @@ export function TargetRowsEditor({ value = [], onChange = () => {}, tokenizers =
           targets={targets}
           tokenizers={tokenizers}
           showTokenizer={showTokenizer}
+          autoFromTarget={autoFromTarget}
           multiModel={multiModel}
           onChange={r => update(i, r)}
           onRemove={() => remove(i)}

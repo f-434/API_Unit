@@ -7,8 +7,8 @@ import {
 import { CheckOutlined, EditOutlined, PlayCircleOutlined, UndoOutlined } from '@ant-design/icons'
 import { api } from '../api'
 import { PageHeader, SummaryLine } from '../components/common'
-import { TargetRowsEditor, type TargetRow } from '../components/TargetModel'
-import type { Prompt } from '../types'
+import { TargetRowsEditor, tokenizerForCaliber, useTargets, type TargetRow } from '../components/TargetModel'
+import type { Prompt, Target } from '../types'
 import { fmtInt } from '../format'
 
 type TokenEstimate = { tokens: number; source: string; error?: string }
@@ -34,8 +34,14 @@ export default function AuditNew() {
   const qc = useQueryClient()
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
-  const { data: meta } = useQuery({ queryKey: ['meta'], queryFn: api.meta })
   const { data: prompts } = useQuery({ queryKey: ['prompts'], queryFn: api.prompts })
+  // 协议与分词器由渠道配置自动映射，审计页不再手选。
+  const { data: channels = [] } = useTargets()
+  const channelMap = useMemo(() => {
+    const map: Record<string, Target> = {}
+    for (const c of channels) map[c.id] = c
+    return map
+  }, [channels])
   const targets = (Form.useWatch('targets', form) || []) as TargetRow[]
   const promptIds = (Form.useWatch('promptIds', form) || []) as string[]
   const reps = Form.useWatch('repetitions', form) || 3
@@ -60,16 +66,19 @@ export default function AuditNew() {
   // 一个渠道可配置多个模型；这里展开成独立的“渠道 × 模型”目标。
   // 后端与报告仍按单模型目标处理，语义与手工逐行添加完全一致。
   const validTargets = useMemo(() => {
-    const out: (TargetRow & { ti: number; model: string })[] = []
+    const out: (TargetRow & { ti: number; model: string; tokenFamily?: string })[] = []
     targets.forEach((t, ti) => {
       if (!t.targetId) return
+      const channel = channelMap[t.targetId]
+      const protocol = channel?.protocol || 'auto'
+      const tokenizer = tokenizerForCaliber(channel?.tokenFamily)
       for (const raw of t.models || []) {
         const model = raw.trim()
-        if (model) out.push({ ...t, ti, model })
+        if (model) out.push({ ...t, ti, model, protocol, tokenizer, tokenFamily: channel?.tokenFamily })
       }
     })
     return out
-  }, [targets])
+  }, [targets, channelMap])
 
   // Seed drafts for newly selected prompts while preserving in-progress edits.
   // If the prompt library is still loading we leave the key unset so the
@@ -86,7 +95,7 @@ export default function AuditNew() {
   }, [promptIds.join('|'), prompts])
 
   const estimateSig = useMemo(() => JSON.stringify({
-    targets: validTargets.map(t => [t.ti, t.targetId, t.model, t.tokenizer || 'auto']),
+    targets: validTargets.map(t => [t.ti, t.targetId, t.model, t.tokenizer || 'auto', t.tokenFamily || '']),
     prompts: selectedPrompts.map(p => [p.id, drafts[p.id] ?? p.content]),
   }), [validTargets, selectedPrompts, drafts])
 
@@ -94,13 +103,14 @@ export default function AuditNew() {
   // counting is replaced with a local strategy so typing does not hit upstream.
   useEffect(() => {
     let cancelled = false
-    const jobs: { key: string; targetId: string; model: string; strategy: string; content: string }[] = []
+    const jobs: { key: string; targetId: string; model: string; strategy: string; content: string; promptId: string }[] = []
     for (const t of validTargets) {
       for (const p of selectedPrompts) {
         const content = drafts[p.id] ?? p.content
         if (!content.trim()) continue
         const strategy = t.tokenizer === 'online' ? 'auto' : (t.tokenizer || 'auto')
-        jobs.push({ key: `${t.ti}:${t.model}:${p.id}`, targetId: t.targetId, model: t.model, strategy, content })
+        // 传入 promptId 后，内容未改动且渠道标注了口径时后端直接返回手工基准。
+        jobs.push({ key: `${t.ti}:${t.model}:${p.id}`, targetId: t.targetId, model: t.model, strategy, content, promptId: p.id })
       }
     }
     if (!jobs.length) {
@@ -113,7 +123,7 @@ export default function AuditNew() {
       Promise.all(jobs.map(async (j): Promise<[string, TokenEstimate]> => {
         try {
           const r = await api.tokenizerCount({
-            model: j.model, strategy: j.strategy, targetId: j.targetId,
+            model: j.model, strategy: j.strategy, targetId: j.targetId, promptId: j.promptId,
             messages: [{ role: 'user', content: j.content }],
           })
           return [j.key, { tokens: Number(r?.tokens || 0), source: String(r?.source || '') }]
@@ -196,13 +206,16 @@ export default function AuditNew() {
     const expanded: AuditTarget[] = []
     for (const t of rows) {
       if (!t.targetId) continue
+      const channel = channelMap[t.targetId]
+      const protocol = channel?.protocol || 'auto'
+      const tokenizer = tokenizerForCaliber(channel?.tokenFamily)
       const models = (t.models || []).map(m => m.trim()).filter(Boolean)
       for (const model of models) {
         expanded.push({
           targetId: t.targetId,
           model,
-          protocol: t.protocol || 'auto',
-          tokenizer: t.tokenizer || 'auto',
+          protocol,
+          tokenizer,
           label: expandLabel(t.label, models.length, model),
         })
       }
@@ -280,7 +293,7 @@ export default function AuditNew() {
         <div className="panel">
           <div className="panel-title">1. 对比目标</div>
           <Form.Item name="targets" rules={[{ required: true }]}>
-            <TargetRowsEditor tokenizers={meta?.tokenizerStrategies || []} showTokenizer multiModel />
+            <TargetRowsEditor autoFromTarget multiModel />
           </Form.Item>
         </div>
 

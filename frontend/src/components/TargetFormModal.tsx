@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Checkbox, Form, Input, Modal, Select, Space, Tag, message } from 'antd'
+import { Alert, Button, Cascader, Checkbox, Form, Input, Modal, Select, Space, Tag, message } from 'antd'
 import { ThunderboltOutlined } from '@ant-design/icons'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import type { Target } from '../types'
+import type { Target, TokenFamilyNode } from '../types'
 
 const NETWORK_ISSUE_RE = /tls handshake timeout|i\/o timeout|connection timed out|connection reset|network is unreachable/i
 const hasNetworkIssue = (r: any) => NETWORK_ISSUE_RE.test(JSON.stringify(r || {}))
+
+// 口径树支持任意层级，Cascader 的 value 即路径片段。
+function familyOptions(nodes?: TokenFamilyNode[]): any[] {
+  return (nodes || []).map(n => ({
+    value: n.key,
+    label: n.label,
+    children: n.children?.length ? familyOptions(n.children) : undefined,
+  }))
+}
 
 export default function TargetFormModal({
   open, target, onClose, onSaved,
@@ -17,6 +26,7 @@ export default function TargetFormModal({
   onSaved?: (target?: Target) => void
 }) {
   const qc = useQueryClient()
+  const { data: meta } = useQuery({ queryKey: ['meta'], queryFn: api.meta })
   const [form] = Form.useForm()
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<any>(null)
@@ -30,9 +40,10 @@ export default function TargetFormModal({
       form.setFieldsValue({
         name: target.name, baseUrl: target.baseUrl, modelsPath: target.modelsPath || '',
         protocol: target.protocol, apiKey: '', clearKey: false,
+        tokenFamilyPath: target.tokenFamily ? target.tokenFamily.split('/') : [],
       })
     } else {
-      form.setFieldsValue({ protocol: 'auto' })
+      form.setFieldsValue({ protocol: 'auto', tokenFamilyPath: [] })
     }
   }, [open, target?.id])
 
@@ -43,6 +54,7 @@ export default function TargetFormModal({
         baseUrl: values.baseUrl,
         modelsPath: values.modelsPath || '',
         protocol: values.protocol,
+        tokenFamily: (values.tokenFamilyPath || []).join('/'),
         clearKey: values.clearKey,
       }
       if (values.apiKey) body.apiKey = values.apiKey
@@ -116,6 +128,15 @@ export default function TargetFormModal({
             { value: 'claude', label: 'Anthropic Messages（原生）' },
             { value: 'gemini', label: 'Gemini generateContent（原生）' },
           ]} />
+        </Form.Item>
+        <Form.Item name="tokenFamilyPath" label="Token 口径">
+          <Cascader
+            options={familyOptions(meta?.tokenFamilies)}
+            allowClear
+            changeOnSelect
+            placeholder="未标注（按本地分词器）"
+            expandTrigger="hover"
+          />
         </Form.Item>
         <Form.Item
           name="apiKey"

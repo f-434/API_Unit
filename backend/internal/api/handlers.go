@@ -17,6 +17,7 @@ import (
 	"apiunit/internal/modules/modcommon"
 	"apiunit/internal/protocol"
 	"apiunit/internal/seed"
+	"apiunit/internal/tokenmeta"
 	"apiunit/internal/tokens"
 )
 
@@ -39,6 +40,8 @@ type targetReq struct {
 	ClearKey bool    `json:"clearKey"`
 	// ModelsPath 可选：自定义模型列表接口，支持 /v1/models 或完整 URL。
 	ModelsPath *string `json:"modelsPath"`
+	// TokenFamily 是渠道所属的 Token 口径路径（如 gemini/vt），用于匹配手工 Token 基准。
+	TokenFamily *string `json:"tokenFamily"`
 	// TargetID 仅用于“测试连接”：编辑已有上游且未重新输入 Key 时沿用已保存的 Key。
 	TargetID string `json:"targetId"`
 	// Models 是添加/编辑时“测试连接并获取模型”得到的模型列表。
@@ -60,6 +63,12 @@ func (s *Server) handleTargetCreate(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	family, err := s.resolveTokenFamily(req.TokenFamily, "")
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	t.TokenFamily = family
 	if err := s.store.SaveTarget(t, key); err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -119,6 +128,23 @@ func normalizeModelsPath(raw *string) string {
 	return p
 }
 
+// resolveTokenFamily 解析并校验渠道的口径路径；未提交时沿用旧值。
+func (s *Server) resolveTokenFamily(next *string, fallback string) (string, error) {
+	old := strings.Trim(strings.TrimSpace(fallback), "/")
+	family := old
+	if next != nil {
+		family = strings.Trim(strings.TrimSpace(*next), "/")
+	}
+	if family == "" {
+		return "", nil
+	}
+	// 口径树被删减后，旧渠道保留原路径仍可读取；只有新选择才要求节点存在。
+	if family != old && !tokenmeta.Load(s.store).HasPath(family) {
+		return "", fmt.Errorf("未知的 Token 口径：%s", family)
+	}
+	return family, nil
+}
+
 func (s *Server) handleTargetUpdate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.store.GetTarget(id, false)
@@ -150,10 +176,16 @@ func (s *Server) handleTargetUpdate(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	family, err := s.resolveTokenFamily(req.TokenFamily, existing.TokenFamily)
+	if err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	t.ID = existing.ID
 	t.CreatedAt = existing.CreatedAt
 	t.ModelCount = existing.ModelCount
 	t.LastTestedAt = existing.LastTestedAt
+	t.TokenFamily = family
 	if req.ClearKey {
 		if err := s.store.ClearTargetKey(id); err != nil {
 			apiError(w, http.StatusInternalServerError, err.Error())
@@ -264,6 +296,18 @@ type promptReq struct {
 	Name     string `json:"name"`
 	Category string `json:"category"`
 	Content  string `json:"content"`
+	// TokenOverrides 为“口径路径 → 本地 Token 数”的手工基准。
+	// 指针用于区分“未提交”和“提交空对象”。
+	TokenOverrides *map[string]int `json:"tokenOverrides"`
+	// Recalibrate 表示用户确认把现有基准套用到一个已修改的提示词内容上。
+	Recalibrate bool `json:"recalibrate"`
+}
+
+// applyPromptOverrideState 统一整理基准并计算失效状态，供响应直接展示。
+func applyPromptOverrideState(p *model.Prompt) {
+	p.TokenOverrides = tokenmeta.NormalizeOverrides(p.TokenOverrides)
+	p.TokenOverridesStale = len(p.TokenOverrides) > 0 &&
+		(p.TokenOverridesHash == "" || p.TokenOverridesHash != model.HashText(p.Content))
 }
 
 func (s *Server) handlePromptCreate(w http.ResponseWriter, r *http.Request) {
@@ -283,10 +327,17 @@ func (s *Server) handlePromptCreate(w http.ResponseWriter, r *http.Request) {
 	if p.Category == "" {
 		p.Category = "custom"
 	}
+	if req.TokenOverrides != nil {
+		p.TokenOverrides = tokenmeta.NormalizeOverrides(*req.TokenOverrides)
+	}
+	if len(p.TokenOverrides) > 0 {
+		p.TokenOverridesHash = model.HashText(p.Content)
+	}
 	if err := s.store.SavePrompt(p); err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	applyPromptOverrideState(p)
 	writeJSON(w, http.StatusCreated, map[string]any{"item": p})
 }
 
@@ -314,10 +365,78 @@ func (s *Server) handlePromptUpdate(w http.ResponseWriter, r *http.Request) {
 		p.Category = req.Category
 	}
 	p.Content = req.Content
+	if req.TokenOverrides != nil {
+		next := tokenmeta.NormalizeOverrides(*req.TokenOverrides)
+		// 基准数值没动且未显式确认重新校准：保留旧摘要。
+		// 这样内容变更后基准会自动失效，普通保存不会误把旧数值重新启用。
+		if tokenmeta.OverridesEqual(next, existing.TokenOverrides) && !req.Recalibrate {
+			p.TokenOverrides = existing.TokenOverrides
+			p.TokenOverridesHash = existing.TokenOverridesHash
+		} else {
+			p.TokenOverrides = next
+			p.TokenOverridesHash = ""
+			if len(next) > 0 {
+				p.TokenOverridesHash = model.HashText(p.Content)
+			}
+		}
+	}
 	if err := s.store.SavePrompt(&p); err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	applyPromptOverrideState(&p)
+	writeJSON(w, http.StatusOK, map[string]any{"item": p})
+}
+
+// handlePromptTokenReference 把一次审计实测值写成提示词在指定口径上的基准。
+// tokens<=0 表示删除该路径的基准。
+func (s *Server) handlePromptTokenReference(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	p, err := s.findPrompt(id)
+	if err != nil {
+		apiError(w, http.StatusNotFound, "提示词不存在")
+		return
+	}
+	var req struct {
+		Family string `json:"family"`
+		Tokens int    `json:"tokens"`
+	}
+	if err := decode(r, &req, 1<<20); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	family := strings.Trim(strings.TrimSpace(req.Family), "/")
+	if family == "" {
+		apiError(w, http.StatusBadRequest, "请选择 Token 口径")
+		return
+	}
+	if req.Tokens > 0 && !tokenmeta.Load(s.store).HasPath(family) {
+		apiError(w, http.StatusBadRequest, "未知的 Token 口径："+family)
+		return
+	}
+	// 内容已变更导致旧基准失效时，只保留这次回填的值，
+	// 避免把过时的其他口径数值一并重新启用。
+	overrides := map[string]int{}
+	if tokenmeta.OverridesActive(*p) {
+		for k, v := range p.TokenOverrides {
+			overrides[k] = v
+		}
+	}
+	if req.Tokens > 0 {
+		overrides[family] = req.Tokens
+	} else {
+		delete(overrides, family)
+	}
+	p.TokenOverrides = tokenmeta.NormalizeOverrides(overrides)
+	p.TokenOverridesHash = ""
+	if len(p.TokenOverrides) > 0 {
+		p.TokenOverridesHash = model.HashText(p.Content)
+	}
+	if err := s.store.SavePrompt(p); err != nil {
+		apiError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	applyPromptOverrideState(p)
 	writeJSON(w, http.StatusOK, map[string]any{"item": p})
 }
 
@@ -372,6 +491,12 @@ func (s *Server) handlePromptsImport(w http.ResponseWriter, r *http.Request) {
 			p.Category = "imported"
 		}
 		item := &model.Prompt{Name: p.Name, Category: p.Category, Content: p.Content}
+		if p.TokenOverrides != nil {
+			item.TokenOverrides = tokenmeta.NormalizeOverrides(*p.TokenOverrides)
+			if len(item.TokenOverrides) > 0 {
+				item.TokenOverridesHash = model.HashText(item.Content)
+			}
+		}
 		if err := s.store.SavePrompt(item); err != nil {
 			apiError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -695,6 +820,9 @@ func (s *Server) handleTokenizerCount(w http.ResponseWriter, r *http.Request) {
 		Messages []protocol.ChatMessage `json:"messages"`
 		Strategy string                 `json:"strategy"`
 		TargetID string                 `json:"targetId"`
+		// PromptID 可选：提示词库中的提示词。内容未改动且渠道标注了口径时，
+		// 直接返回手工维护的本地 Token 基准。
+		PromptID string `json:"promptId"`
 	}
 	if err := decodeLenient(r, &req, 8<<20); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())
@@ -703,6 +831,10 @@ func (s *Server) handleTokenizerCount(w http.ResponseWriter, r *http.Request) {
 	strategy := tokens.Strategy(strings.ToLower(strings.TrimSpace(req.Strategy)))
 	if strategy == "" {
 		strategy = tokens.StrategyAuto
+	}
+	if res, ok := s.manualTokenCount(req.PromptID, req.TargetID, req.Messages, strategy); ok {
+		writeJSON(w, http.StatusOK, res)
+		return
 	}
 	if strategy == tokens.StrategyOnline {
 		if req.TargetID == "" {
@@ -731,6 +863,50 @@ func (s *Server) handleTokenizerCount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, res)
 }
 
+// manualTokenCount 在提示词内容未改动、且渠道标注了口径时返回手工基准。
+func (s *Server) manualTokenCount(promptID, targetID string, msgs []protocol.ChatMessage, strategy tokens.Strategy) (tokens.Result, bool) {
+	if promptID == "" || targetID == "" || strategy == tokens.StrategyNone {
+		return tokens.Result{}, false
+	}
+	if len(msgs) != 1 || !strings.EqualFold(msgs[0].Role, "user") {
+		return tokens.Result{}, false
+	}
+	p, err := s.findPrompt(promptID)
+	if err != nil || p.Content != msgs[0].Content {
+		return tokens.Result{}, false
+	}
+	target, err := s.store.GetTarget(targetID, false)
+	if err != nil {
+		return tokens.Result{}, false
+	}
+	n, key, ok := tokenmeta.ResolveOverride(*p, target.TokenFamily)
+	if !ok {
+		return tokens.Result{}, false
+	}
+	return tokens.Result{Tokens: n, Source: "manual", Detail: key}, true
+}
+
+// ---------------- token families ----------------
+
+func (s *Server) handleTokenFamiliesGet(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"items": tokenmeta.Load(s.store)})
+}
+
+func (s *Server) handleTokenFamiliesSave(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Items tokenmeta.Taxonomy `json:"items"`
+	}
+	if err := decode(r, &req, 1<<20); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := tokenmeta.Save(s.store, req.Items); err != nil {
+		apiError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": tokenmeta.Load(s.store)})
+}
+
 func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	strategies := []map[string]string{
 		{"id": string(tokens.StrategyAuto), "label": "自动（按模型家族）"},
@@ -747,6 +923,7 @@ func (s *Server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"protocols":           protocol.Capabilities(),
 		"categories":          seed.Categories(),
 		"tokenizerStrategies": strategies,
+		"tokenFamilies":       tokenmeta.Load(s.store),
 		"limits": map[string]any{
 			"maxConcurrentRuns": s.cfg.MaxConcurrentRuns,
 			"maxBodyMb":         s.cfg.MaxBodyBytes >> 20,

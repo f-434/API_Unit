@@ -1,6 +1,7 @@
 import type {
   Attack, DiffResponse, ImageDetectionConfigResponse, Item, ItemDetail, Kind, Live, Meta,
-  Paged, Price, Prompt, Run, RunRow, RunView, Snapshot, SnapshotDetail, Target, TokenizerStatus,
+  Paged, Price, Prompt, Run, RunRow, RunView, Snapshot, SnapshotDetail, Target, TokenFamilyNode,
+  TokenizerStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -61,6 +62,11 @@ export const api = {
   updatePrompt: (id: string, body: any) => put<{ item: Prompt }>(`/api/prompts/${id}`, body),
   deletePrompt: (id: string) => del<{ ok: boolean }>(`/api/prompts/${id}`),
   importPrompts: (prompts: any[]) => post<{ created: number }>('/api/prompts/import', { prompts }),
+  setPromptTokenReference: (id: string, body: { family: string; tokens: number }) =>
+    post<{ item: Prompt }>(`/api/prompts/${id}/token-reference`, body),
+
+  tokenFamilies: () => get<{ items: TokenFamilyNode[] }>('/api/token-families'),
+  saveTokenFamilies: (items: TokenFamilyNode[]) => put<{ items: TokenFamilyNode[] }>('/api/token-families', { items }),
 
   attacks: () => get<{ items: Attack[]; categories: { id: string; label: string }[] }>('/api/attacks'),
   createAttack: (body: any) => post<{ item: Attack }>('/api/attacks', body),

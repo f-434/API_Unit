@@ -5,6 +5,7 @@ package model
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -45,6 +46,12 @@ const (
 
 func NowMs() int64 { return time.Now().UnixMilli() }
 
+// HashText 返回文本的 SHA-256 十六进制摘要，用于判断提示词内容是否变更。
+func HashText(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
 // NewID returns a sortable, opaque identifier such as r_1m2n3o4o5a1b2c3d4.
 func NewID(prefix string) string {
 	b := make([]byte, 5)
@@ -59,14 +66,17 @@ type Target struct {
 	BaseURL string `json:"baseUrl"`
 	// ModelsPath 是自定义模型列表接口，可填相对路径（如 /v1/models）或完整 URL；
 	// 为空时按 Base URL 自动探测 OpenAI / Claude / Gemini 的默认模型接口。
-	ModelsPath   string   `json:"modelsPath,omitempty"`
-	Protocol     Protocol `json:"protocol"`
-	HasKey       bool     `json:"hasKey"`
-	KeyMasked    string   `json:"keyMasked"`
-	ModelCount   int      `json:"modelCount,omitempty"`
-	CreatedAt    int64    `json:"createdAt"`
-	UpdatedAt    int64    `json:"updatedAt"`
-	LastTestedAt int64    `json:"lastTestedAt,omitempty"`
+	ModelsPath string   `json:"modelsPath,omitempty"`
+	Protocol   Protocol `json:"protocol"`
+	// TokenFamily 是渠道所属的 Token 口径路径，例如 gemini/vt。
+	// 审计时用它匹配提示词库中维护的本地 Token 基准；为空则回退本地分词器。
+	TokenFamily  string `json:"tokenFamily,omitempty"`
+	HasKey       bool   `json:"hasKey"`
+	KeyMasked    string `json:"keyMasked"`
+	ModelCount   int    `json:"modelCount,omitempty"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+	LastTestedAt int64  `json:"lastTestedAt,omitempty"`
 }
 
 // TargetSecret is the internal representation including the decrypted key.
@@ -95,13 +105,20 @@ func MaskKey(key string) string {
 
 // Prompt is a reusable input used by token audits and (optionally) stress runs.
 type Prompt struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Category  string `json:"category"`
-	Content   string `json:"content"`
-	Builtin   bool   `json:"builtin"`
-	CreatedAt int64  `json:"createdAt"`
-	UpdatedAt int64  `json:"updatedAt"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Content  string `json:"content"`
+	Builtin  bool   `json:"builtin"`
+	// TokenOverrides 按口径路径保存手工维护的本地 Token 数，
+	// 例如 {"gemini": 31, "gemini/vt": 34}；最具体的路径优先。
+	TokenOverrides map[string]int `json:"tokenOverrides,omitempty"`
+	// TokenOverridesHash 是维护基准时的内容摘要；与当前内容不一致时基准失效。
+	TokenOverridesHash string `json:"tokenOverridesHash,omitempty"`
+	// TokenOverridesStale 表示内容已变更、当前基准不会参与审计比较。
+	TokenOverridesStale bool  `json:"tokenOverridesStale"`
+	CreatedAt           int64 `json:"createdAt"`
+	UpdatedAt           int64 `json:"updatedAt"`
 }
 
 // Check is a deterministic success criterion for an injection test case.

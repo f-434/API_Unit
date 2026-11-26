@@ -55,6 +55,9 @@ type ExecRequest struct {
 
 	TokenizerStrategy tokens.Strategy
 	LocalPrompt       bool
+	// LocalTokensOverride 是提示词库中按口径手工维护的本地 Token 基准。
+	// 大于 0 时优先于分词器估算；来源标记为 manual。
+	LocalTokensOverride int
 
 	CaseID     string
 	CaseName   string
@@ -548,7 +551,16 @@ func (s *Session) Exec(ctx context.Context, req ExecRequest) (model.Item, bool) 
 	localTokens := 0
 	localSource := ""
 	needLocal := req.LocalPrompt || it.PromptTokens == 0
-	if needLocal && len(msgs) > 0 && strategy != tokens.StrategyNone {
+	if req.LocalTokensOverride > 0 && strategy != tokens.StrategyNone {
+		// 手工维护的基准对该渠道的口径而言就是实际输入 Token 数，
+		// 同时用于在响应缺少 usage 时兜底。
+		localTokens = req.LocalTokensOverride
+		localSource = "manual"
+		if it.OK && it.PromptTokens == 0 {
+			it.PromptTokens = localTokens
+			estimated = true
+		}
+	} else if needLocal && len(msgs) > 0 && strategy != tokens.StrategyNone {
 		if strategy == tokens.StrategyOnline {
 			octx, ocancel := context.WithTimeout(ctx, 20*time.Second)
 			r, oerr := s.counter.CountOnline(octx, target, req.Model, msgs)

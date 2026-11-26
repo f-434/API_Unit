@@ -1,12 +1,109 @@
 import ScrollTable from '../components/ScrollTable'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Alert, Button, Descriptions, InputNumber, Popconfirm, Space, Tag, message } from 'antd'
-import { CloudDownloadOutlined, DeleteOutlined, ReloadOutlined, SyncOutlined } from '@ant-design/icons'
+import { Alert, Button, Descriptions, Input, InputNumber, Popconfirm, Space, Tag, message } from 'antd'
+import {
+  CloudDownloadOutlined, DeleteOutlined, PlusOutlined, ReloadOutlined, SaveOutlined, SyncOutlined,
+} from '@ant-design/icons'
 import { api } from '../api'
+import type { TokenFamilyNode } from '../types'
 import { EllipsisText, PageHeader } from '../components/common'
 import AuthenticityHostedSettings from '../components/AuthenticityHostedSettings'
 import { fmtDuration } from '../format'
+
+function updateFamily(
+  nodes: TokenFamilyNode[], path: number[], patch: Partial<TokenFamilyNode>,
+): TokenFamilyNode[] {
+  if (!path.length) return nodes
+  const [head, ...rest] = path
+  return nodes.map((node, i) => {
+    if (i !== head) return node
+    if (!rest.length) return { ...node, ...patch }
+    return { ...node, children: updateFamily(node.children || [], rest, patch) }
+  })
+}
+
+function addFamilyChild(nodes: TokenFamilyNode[], path: number[]): TokenFamilyNode[] {
+  if (!path.length) return nodes
+  const [head, ...rest] = path
+  return nodes.map((node, i) => {
+    if (i !== head) return node
+    if (!rest.length) {
+      return { ...node, children: [...(node.children || []), { key: '', label: '' }] }
+    }
+    return { ...node, children: addFamilyChild(node.children || [], rest) }
+  })
+}
+
+function removeFamily(nodes: TokenFamilyNode[], path: number[]): TokenFamilyNode[] {
+  if (!path.length) return nodes
+  const [head, ...rest] = path
+  if (!rest.length) return nodes.filter((_, i) => i !== head)
+  return nodes.map((node, i) => i === head
+    ? { ...node, children: removeFamily(node.children || [], rest) }
+    : node)
+}
+
+function familyTreeValid(nodes: TokenFamilyNode[]): boolean {
+  if (!nodes.length) return false
+  for (const node of nodes) {
+    if (!node.key.trim() || !node.label.trim()) return false
+    if (node.children?.length && !familyTreeValid(node.children)) return false
+  }
+  return true
+}
+
+function FamilyRows({ nodes, path, onPatch, onAdd, onRemove }: {
+  nodes: TokenFamilyNode[]
+  path: number[]
+  onPatch: (path: number[], patch: Partial<TokenFamilyNode>) => void
+  onAdd: (path: number[]) => void
+  onRemove: (path: number[]) => void
+}) {
+  return (
+    <>
+      {nodes.map((node, i) => {
+        const p = [...path, i]
+        return (
+          <div key={p.join('.')}>
+            <div className="caliber-row" data-depth={path.length}>
+              <Input
+                size="small"
+                className="caliber-name"
+                value={node.label}
+                placeholder="名称"
+                onChange={e => onPatch(p, { label: e.target.value })}
+              />
+              {node.key
+                ? <span className="caliber-key mono">{node.key}</span>
+                : <Input
+                    size="small"
+                    value={node.key}
+                    placeholder="标识（小写）"
+                    onChange={e => onPatch(p, { key: e.target.value.toLowerCase() })}
+                  />}
+              <div className="caliber-actions">
+                <Button size="small" type="text" icon={<PlusOutlined />} title="新增下级" onClick={() => onAdd(p)} />
+                <Button size="small" type="text" danger icon={<DeleteOutlined />} title="删除" onClick={() => onRemove(p)} />
+              </div>
+            </div>
+            {(node.children?.length || 0) > 0 && (
+              <div className="caliber-children">
+                <FamilyRows
+                  nodes={node.children || []}
+                  path={p}
+                  onPatch={onPatch}
+                  onAdd={onAdd}
+                  onRemove={onRemove}
+                />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </>
+  )
+}
 
 export default function Settings() {
   const qc = useQueryClient()
@@ -64,6 +161,29 @@ export default function Settings() {
     mutationFn: () => api.purgeRuns(days),
     onSuccess: (r: any) => { message.success(`已清理 ${r.deleted} 条历史测试`); qc.invalidateQueries({ queryKey: ['runs'] }) },
     onError: (e: any) => message.error(e?.message || '清理失败'),
+  })
+
+  // 编辑中的口径树不能被窗口聚焦触发的后台刷新覆盖。
+  const { data: familyData } = useQuery({
+    queryKey: ['tokenFamilies'],
+    queryFn: api.tokenFamilies,
+    refetchOnWindowFocus: false,
+    staleTime: 5 * 60 * 1000,
+  })
+  const [families, setFamilies] = useState<TokenFamilyNode[] | null>(null)
+  useEffect(() => { if (familyData?.items) setFamilies(familyData.items) }, [familyData])
+  const tree = families ?? familyData?.items ?? []
+  const editTree = (fn: (prev: TokenFamilyNode[]) => TokenFamilyNode[]) =>
+    setFamilies(prev => fn(prev ?? familyData?.items ?? []))
+  const saveFamilies = useMutation({
+    mutationFn: (items: TokenFamilyNode[]) => api.saveTokenFamilies(items),
+    onSuccess: (r: any) => {
+      setFamilies(r.items)
+      message.success('已保存 Token 口径')
+      qc.invalidateQueries({ queryKey: ['meta'] })
+      qc.invalidateQueries({ queryKey: ['tokenFamilies'] })
+    },
+    onError: (e: any) => message.error(e?.message || '保存失败'),
   })
 
   const tokenizerRows = meta?.tokenizers?.gemini || []
@@ -159,6 +279,47 @@ export default function Settings() {
             },
           ]}
         />
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">
+          <span>Token 口径</span>
+          <span style={{ flex: 1 }} />
+          <Button size="small" icon={<PlusOutlined />} onClick={() => editTree(prev => [...prev, { key: '', label: '' }])}>
+            新增一级
+          </Button>
+          <Button
+            size="small"
+            type="primary"
+            icon={<SaveOutlined />}
+            loading={saveFamilies.isPending}
+            onClick={() => {
+              if (!tree.length) return message.error('至少保留一个根节点')
+              if (!familyTreeValid(tree)) return message.error('请填写所有节点的名称和标识')
+              saveFamilies.mutate(tree)
+            }}
+          >
+            保存
+          </Button>
+        </div>
+        <div className="caliber-tree">
+          <div className="caliber-head">
+            <span>名称</span>
+            <span>标识</span>
+            <span />
+          </div>
+          {tree.length === 0
+            ? <div className="caliber-empty muted">尚无口径，先新增一级</div>
+            : (
+              <FamilyRows
+                nodes={tree}
+                path={[]}
+                onPatch={(path, patch) => editTree(prev => updateFamily(prev, path, patch))}
+                onAdd={path => editTree(prev => addFamilyChild(prev, path))}
+                onRemove={path => editTree(prev => removeFamily(prev, path))}
+              />
+            )}
+        </div>
       </div>
 
       <AuthenticityHostedSettings />

@@ -13,6 +13,8 @@ export interface Target {
   baseUrl: string
   /** 自定义模型列表接口；为空时自动探测。 */
   modelsPath?: string
+  /** Token 口径路径，例如 gemini/vt；用于匹配手工 Token 基准。 */
+  tokenFamily?: string
   protocol: Protocol
   hasKey: boolean
   keyMasked: string
@@ -28,8 +30,19 @@ export interface Prompt {
   category: string
   content: string
   builtin: boolean
+  /** 按口径路径维护的本地 Token 基准，例如 { "gemini/vt": 34 }。 */
+  tokenOverrides?: Record<string, number>
+  tokenOverridesHash?: string
+  /** 内容已变更，当前基准不参与审计比较。 */
+  tokenOverridesStale?: boolean
   createdAt: number
   updatedAt: number
+}
+
+export interface TokenFamilyNode {
+  key: string
+  label: string
+  children?: TokenFamilyNode[]
 }
 
 export interface Check {
@@ -408,6 +421,7 @@ export interface AuditCell {
   targetLabel: string
   model: string
   protocol: string
+  tokenFamily?: string
   promptId: string
   promptName: string
   count: number
@@ -441,6 +455,7 @@ export interface AuditTargetAgg {
   targetLabel: string
   model: string
   protocol: string
+  tokenFamily?: string
   responseModels?: string[]
   count: number
   success: number
@@ -855,6 +870,7 @@ export interface Meta {
   protocols: { id: string; label: string; stream: boolean; default: boolean }[]
   categories: { id: string; label: string }[]
   tokenizerStrategies: { id: string; label: string }[]
+  tokenFamilies: TokenFamilyNode[]
   limits: { maxConcurrentRuns: number; maxBodyMb: number; retentionDays: number }
   tokenizers: TokenizerStatus
 }

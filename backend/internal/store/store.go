@@ -50,6 +50,7 @@ func (s *Store) migrate() error {
 			protocol TEXT NOT NULL DEFAULT 'auto',
 			api_key_enc TEXT NOT NULL DEFAULT '',
 			models_path TEXT NOT NULL DEFAULT '',
+			token_family TEXT NOT NULL DEFAULT '',
 			model_count INTEGER NOT NULL DEFAULT 0,
 			last_tested_at INTEGER NOT NULL DEFAULT 0,
 			created_at INTEGER NOT NULL,
@@ -61,6 +62,8 @@ func (s *Store) migrate() error {
 			category TEXT NOT NULL DEFAULT '',
 			content TEXT NOT NULL,
 			builtin INTEGER NOT NULL DEFAULT 0,
+			token_overrides_json TEXT NOT NULL DEFAULT '{}',
+			token_overrides_hash TEXT NOT NULL DEFAULT '',
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
@@ -215,6 +218,21 @@ func (s *Store) migrate() error {
 		_ = tx.Rollback()
 		return fmt.Errorf("migrate: %w", err)
 	}
+	if err := ensureColumn(tx, "targets", "token_family",
+		`ALTER TABLE targets ADD COLUMN token_family TEXT NOT NULL DEFAULT ''`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate: %w", err)
+	}
+	if err := ensureColumn(tx, "prompts", "token_overrides_json",
+		`ALTER TABLE prompts ADD COLUMN token_overrides_json TEXT NOT NULL DEFAULT '{}'`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate: %w", err)
+	}
+	if err := ensureColumn(tx, "prompts", "token_overrides_hash",
+		`ALTER TABLE prompts ADD COLUMN token_overrides_hash TEXT NOT NULL DEFAULT ''`); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("migrate: %w", err)
+	}
 	return tx.Commit()
 }
 
@@ -257,7 +275,7 @@ func ensureColumn(tx *sql.Tx, table, column, ddl string) error {
 // ---------- targets ----------
 
 func (s *Store) ListTargets() ([]model.Target, error) {
-	rows, err := s.db.Query(`SELECT id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at FROM targets ORDER BY updated_at DESC`)
+	rows, err := s.db.Query(`SELECT id,name,base_url,protocol,api_key_enc,models_path,token_family,model_count,last_tested_at,created_at,updated_at FROM targets ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +284,7 @@ func (s *Store) ListTargets() ([]model.Target, error) {
 	for rows.Next() {
 		var t model.Target
 		var enc string
-		if err := rows.Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelsPath, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelsPath, &t.TokenFamily, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		t.HasKey = enc != ""
@@ -302,8 +320,8 @@ func (s *Store) TargetNames() (map[string]string, error) {
 func (s *Store) GetTarget(id string, withSecret bool) (*model.TargetSecret, error) {
 	var t model.TargetSecret
 	var enc string
-	err := s.db.QueryRow(`SELECT id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at FROM targets WHERE id=?`, id).
-		Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelsPath, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt)
+	err := s.db.QueryRow(`SELECT id,name,base_url,protocol,api_key_enc,models_path,token_family,model_count,last_tested_at,created_at,updated_at FROM targets WHERE id=?`, id).
+		Scan(&t.ID, &t.Name, &t.BaseURL, &t.Protocol, &enc, &t.ModelsPath, &t.TokenFamily, &t.ModelCount, &t.LastTestedAt, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -342,18 +360,20 @@ func (s *Store) SaveTarget(t *model.Target, apiKey string) error {
 		t.CreatedAt = now
 	}
 	if enc == "" {
-		_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?)
+		_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,models_path,token_family,model_count,last_tested_at,created_at,updated_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?)
 			ON CONFLICT(id) DO UPDATE SET name=excluded.name, base_url=excluded.base_url, protocol=excluded.protocol,
-			models_path=excluded.models_path, model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
-			t.ID, t.Name, t.BaseURL, t.Protocol, "", t.ModelsPath, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
+			models_path=excluded.models_path, token_family=excluded.token_family, model_count=excluded.model_count,
+			last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
+			t.ID, t.Name, t.BaseURL, t.Protocol, "", t.ModelsPath, t.TokenFamily, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,models_path,model_count,last_tested_at,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?)
+	_, err := s.db.Exec(`INSERT INTO targets(id,name,base_url,protocol,api_key_enc,models_path,token_family,model_count,last_tested_at,created_at,updated_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(id) DO UPDATE SET name=excluded.name, base_url=excluded.base_url, protocol=excluded.protocol,
-		api_key_enc=excluded.api_key_enc, models_path=excluded.models_path, model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
-		t.ID, t.Name, t.BaseURL, t.Protocol, enc, t.ModelsPath, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
+		api_key_enc=excluded.api_key_enc, models_path=excluded.models_path, token_family=excluded.token_family,
+		model_count=excluded.model_count, last_tested_at=excluded.last_tested_at, updated_at=excluded.updated_at`,
+		t.ID, t.Name, t.BaseURL, t.Protocol, enc, t.ModelsPath, t.TokenFamily, t.ModelCount, t.LastTestedAt, t.CreatedAt, t.UpdatedAt)
 	return err
 }
 
@@ -375,8 +395,31 @@ func (s *Store) DeleteTarget(id string) error {
 
 // ---------- prompts ----------
 
+// parsePromptOverrides 解析提示词的手工 Token 基准并标记失效状态。
+func parsePromptOverrides(p *model.Prompt, raw, hash string) {
+	_ = json.Unmarshal([]byte(raw), &p.TokenOverrides)
+	p.TokenOverrides = normalizePromptOverrides(p.TokenOverrides)
+	p.TokenOverridesHash = hash
+	p.TokenOverridesStale = len(p.TokenOverrides) > 0 &&
+		(p.TokenOverridesHash == "" || p.TokenOverridesHash != model.HashText(p.Content))
+}
+
+func normalizePromptOverrides(in map[string]int) map[string]int {
+	out := map[string]int{}
+	for k, v := range in {
+		k = strings.Trim(strings.TrimSpace(k), "/")
+		if k != "" && v > 0 {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func (s *Store) ListPrompts() ([]model.Prompt, error) {
-	rows, err := s.db.Query(`SELECT id,name,category,content,builtin,created_at,updated_at FROM prompts ORDER BY builtin DESC, name`)
+	rows, err := s.db.Query(`SELECT id,name,category,content,builtin,token_overrides_json,token_overrides_hash,created_at,updated_at FROM prompts ORDER BY builtin DESC, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -385,10 +428,12 @@ func (s *Store) ListPrompts() ([]model.Prompt, error) {
 	for rows.Next() {
 		var p model.Prompt
 		var builtin int
-		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Content, &builtin, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var overrides, hash string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Content, &builtin, &overrides, &hash, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		p.Builtin = builtin != 0
+		parsePromptOverrides(&p, overrides, hash)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -404,7 +449,7 @@ func (s *Store) GetPrompts(ids []string) ([]model.Prompt, error) {
 		ph[i] = "?"
 		args[i] = id
 	}
-	rows, err := s.db.Query(`SELECT id,name,category,content,builtin,created_at,updated_at FROM prompts WHERE id IN (`+strings.Join(ph, ",")+`)`, args...)
+	rows, err := s.db.Query(`SELECT id,name,category,content,builtin,token_overrides_json,token_overrides_hash,created_at,updated_at FROM prompts WHERE id IN (`+strings.Join(ph, ",")+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -413,10 +458,12 @@ func (s *Store) GetPrompts(ids []string) ([]model.Prompt, error) {
 	for rows.Next() {
 		var p model.Prompt
 		var builtin int
-		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Content, &builtin, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		var overrides, hash string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Category, &p.Content, &builtin, &overrides, &hash, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, err
 		}
 		p.Builtin = builtin != 0
+		parsePromptOverrides(&p, overrides, hash)
 		byID[p.ID] = p
 	}
 	out := make([]model.Prompt, 0, len(ids))
@@ -440,9 +487,23 @@ func (s *Store) SavePrompt(p *model.Prompt) error {
 	if p.Category == "" {
 		p.Category = "custom"
 	}
-	_, err := s.db.Exec(`INSERT INTO prompts(id,name,category,content,builtin,created_at,updated_at) VALUES(?,?,?,?,?,?,?)
-		ON CONFLICT(id) DO UPDATE SET name=excluded.name, category=excluded.category, content=excluded.content, updated_at=excluded.updated_at`,
-		p.ID, p.Name, p.Category, p.Content, boolInt(p.Builtin), p.CreatedAt, p.UpdatedAt)
+	p.TokenOverrides = normalizePromptOverrides(p.TokenOverrides)
+	raw := "{}"
+	if len(p.TokenOverrides) > 0 {
+		b, err := json.Marshal(p.TokenOverrides)
+		if err != nil {
+			return err
+		}
+		raw = string(b)
+	}
+	if len(p.TokenOverrides) == 0 {
+		p.TokenOverridesHash = ""
+	}
+	_, err := s.db.Exec(`INSERT INTO prompts(id,name,category,content,builtin,token_overrides_json,token_overrides_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET name=excluded.name, category=excluded.category, content=excluded.content,
+		token_overrides_json=excluded.token_overrides_json, token_overrides_hash=excluded.token_overrides_hash,
+		updated_at=excluded.updated_at`,
+		p.ID, p.Name, p.Category, p.Content, boolInt(p.Builtin), raw, p.TokenOverridesHash, p.CreatedAt, p.UpdatedAt)
 	return err
 }
 

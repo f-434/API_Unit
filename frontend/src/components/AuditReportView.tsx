@@ -1,6 +1,8 @@
 import ScrollTable from './ScrollTable'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from '../pagination'
-import { Space, Tag, Typography } from 'antd'
+import { Button, Popconfirm, Space, Tag, Typography, message } from 'antd'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api'
 import type { AuditCell, AuditReport } from '../types'
 import { Kpi, EmptyPanel, NotesCollapse, ResponseModelCell, VerdictTag } from './common'
 import {
@@ -8,8 +10,10 @@ import {
 } from '../format'
 import { BarChart } from './charts'
 
-function CellView({ c }: { c?: AuditCell }) {
+function CellView({ c, onSave }: { c?: AuditCell; onSave?: (tokens: number) => void }) {
   if (!c) return <span className="muted">-</span>
+  const manual = c.localSource === 'manual'
+  const tokens = Math.round(c.medianInput)
   return (
     <div style={{ lineHeight: 1.55 }}>
       <Space size={4} wrap>
@@ -19,11 +23,20 @@ function CellView({ c }: { c?: AuditCell }) {
       </Space>
       <div className="muted" style={{ fontSize: 11.5 }}>
         Δ {fmtPct(c.deltaPct)} · 波动 {fmtPct(c.spreadPct)}
-        {c.localTokens > 0 && c.status !== 'error' && c.success > 0 && c.avgInput > 0 && <> · 本地偏差 {fmtPct(c.overheadPct)}</>}
+        {c.localTokens > 0 && c.status !== 'error' && c.success > 0 && c.avgInput > 0 && <> · {manual ? '手工' : '本地'}偏差 {fmtPct(c.overheadPct)}</>}
       </div>
       <div className="muted" style={{ fontSize: 11.5 }}>
         {c.success}/{c.count} 成功 · {fmtMs(c.avgLatencyMs)}
         {c.missingUsage > 0 && <span style={{ color: '#d97706' }}> · 缺 usage {c.missingUsage}</span>}
+        {onSave && tokens > 0 && c.success > 0 && (
+          <Popconfirm
+            title={`将 ${tokens} tok 存为该提示词在 ${c.tokenFamily} 的基准？`}
+            description="会覆盖该路径下已有的校准值。"
+            onConfirm={() => onSave(tokens)}
+          >
+            <Button type="link" size="small" style={{ padding: 0, height: 'auto', fontSize: 11.5 }}>存基准</Button>
+          </Popconfirm>
+        )}
       </div>
     </div>
   )
@@ -35,6 +48,16 @@ export default function AuditReportView({ report, showCharts = true, hideSummary
   /** 测试详情页顶部已展示同样的汇总，避免重复。 */
   hideSummary?: boolean
 }) {
+  const qc = useQueryClient()
+  const backfill = useMutation({
+    mutationFn: (v: { promptId: string; family: string; tokens: number }) =>
+      api.setPromptTokenReference(v.promptId, { family: v.family, tokens: v.tokens }),
+    onSuccess: () => {
+      message.success('已写入提示词基准')
+      qc.invalidateQueries({ queryKey: ['prompts'] })
+    },
+    onError: (e: any) => message.error(e?.message || '写入失败'),
+  })
   if (!report) return <EmptyPanel text="审计报告尚未生成（测试运行中或已中断）。" />
   const audit = auditCellStats(report)
   const reqRate = requestSuccessRate(report)
@@ -54,7 +77,15 @@ export default function AuditReportView({ report, showCharts = true, hideSummary
       width: 220,
       render: (_: any, row: any) => {
         const cell = row.cells.find((c: AuditCell) => c.targetIndex === t.targetIndex)
-        return <CellView c={cell} />
+        const family = cell?.tokenFamily
+        return (
+          <CellView
+            c={cell}
+            onSave={family
+              ? tokens => backfill.mutate({ promptId: row.promptId, family, tokens })
+              : undefined}
+          />
+        )
       },
     }
   })

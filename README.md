@@ -184,16 +184,19 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 
 - 多目标 × 多提示词 × 重复次数，矩阵展示。
 - 同一个上游可一次选择多个模型；提交时按模型展开为独立目标，报告、基线与异常判定和手工逐行添加完全等价。展开后的模型总数仍受 12 个目标上限约束。
-- 每个渠道行可单独选择分词器策略；同一行的多个模型共享该设置，需要不同策略时拆成多行：
-  - `auto`：OpenAI → tiktoken；Gemini → 本地 SentencePiece；Claude → 启发式
-  - `tiktoken`：内置 `o200k_base` / `cl100k_base`，离线可用
-  - `gemini`：官方 Gemma 3 / Gemma 2 SentencePiece 模型（首次下载并 SHA-256 校验；CDN / GitHub 官方源 / 代理镜像依次回退）
-  - `online`：调用 OpenAI `POST /v1/responses/input_tokens`（失败自动回退）
-  - `heuristic` / `none`
+- 协议与分词器由所选渠道自动映射，审计页不再逐行手选：
+  - 协议：沿用渠道协议；渠道为 `auto` 时按模型名推断。
+  - 分词器：Gemini 口径 → 本地 SentencePiece；GPT 口径 → tiktoken；其他或未标注口径 → `auto`。
+  - `tiktoken` 内置 `o200k_base` / `cl100k_base`，离线可用；`gemini` 使用官方 Gemma 3 / Gemma 2 SentencePiece 模型（首次下载并 SHA-256 校验；CDN / GitHub 官方源 / 代理镜像依次回退）。
+  - 请求差异审计仍保留逐行分词器选择。
+- 本地 Token 基准（优先于分词器）：
+  - 上游可标注 Token 口径路径（如 `gemini/vt`、`gpt/az`、`claude/awsb`），口径树在「设置 → Token 口径」中可按任意层级动态增删。
+  - 提示词库支持按路径维护实际输入 Token 数，匹配顺序为**完整路径 → 逐级父路径 → 分词器**，例如 `gemini/vt=34`、`gemini=31`。
+  - 内容摘要与维护基准时不一致会自动失效并回退分词器；审计结果里的「存基准」可把实测中位数一键写回对应路径。
 - 判定：
   - `DeltaPct`：相对各目标中位基线（`min` 或 `median`）
   - `SpreadPct`：同一目标重复请求的最大/最小波动
-  - `OverheadPct`：上游上报输入 Token 相对本地分词器的偏差（**判断注入的主证据**）
+  - `OverheadPct`：上游上报输入 Token 相对本地基准（手工基准或分词器）的偏差（**判断注入的主证据**）
   - 缺少 `usage` 会标记 `no_usage`，避免把估算值当真实计费。
 - 跨模型家族（GPT vs Gemini）的 Token 差异天然存在，UI 和报告中会明确提示。
 
@@ -349,7 +352,9 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | GET | `/api/auth/status` | 登录状态 |
 | POST | `/api/auth/login` / `logout` | 登录/退出 |
 | GET/POST/PUT/DELETE | `/api/targets...` | 上游管理、测试连接、获取模型 |
-| GET/POST/PUT/DELETE | `/api/prompts...` | 提示词库 |
+| GET/POST/PUT/DELETE | `/api/prompts...` | 提示词库、按口径维护 Token 基准 |
+| POST | `/api/prompts/{id}/token-reference` | 把实测输入 Token 写为指定口径的基准 |
+| GET/PUT | `/api/token-families` | Token 口径树 |
 | GET/POST/PUT/DELETE | `/api/attacks...` | 攻击用例、导入导出、恢复内置 |
 | GET/POST/PUT/DELETE | `/api/prices...` | 模型定价 |
 | GET | `/api/tokenizers/status` | 分词器状态 |

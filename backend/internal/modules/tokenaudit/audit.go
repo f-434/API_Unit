@@ -14,6 +14,7 @@ import (
 	"apiunit/internal/modules/modcommon"
 	"apiunit/internal/protocol"
 	"apiunit/internal/store"
+	"apiunit/internal/tokenmeta"
 	"apiunit/internal/tokens"
 )
 
@@ -242,24 +243,33 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 				}
 				spec := cfg.Targets[j.ti]
 				msgs := []protocol.ChatMessage{{Role: "user", Content: j.p.Content}}
+				// 提示词库中按渠道口径维护了本地 Token 基准时优先使用，
+				// 未维护（或内容已变更导致基准失效）时回退分词器。
+				override := 0
+				if tokens.Strategy(spec.Tokenizer) != tokens.StrategyNone {
+					if n, _, ok := tokenmeta.ResolveOverride(j.p, resolved[j.ti].TokenFamily); ok {
+						override = n
+					}
+				}
 				sess.SetCurrentModel(spec.Model)
 				sess.SetPhase(fmt.Sprintf("审计 %s · %s", spec.Label, j.p.Name))
 				it, ok := sess.Exec(ctx, engine.ExecRequest{
-					Target:            resolved[j.ti],
-					Model:             spec.Model,
-					Protocol:          modcommon.NormProtocol(spec.Protocol),
-					Messages:          msgs,
-					MaxTokens:         cfg.MaxOutputTokens,
-					Temperature:       cfg.Temperature,
-					Stream:            cfg.Stream,
-					Timeout:           time.Duration(cfg.TimeoutMs) * time.Millisecond,
-					Retry:             cfg.Retry,
-					Capture:           true,
-					TokenizerStrategy: tokens.Strategy(spec.Tokenizer),
-					LocalPrompt:       true,
-					CaseID:            j.p.ID,
-					CaseName:          j.p.Name,
-					Repetition:        j.rep,
+					Target:              resolved[j.ti],
+					Model:               spec.Model,
+					Protocol:            modcommon.NormProtocol(spec.Protocol),
+					Messages:            msgs,
+					MaxTokens:           cfg.MaxOutputTokens,
+					Temperature:         cfg.Temperature,
+					Stream:              cfg.Stream,
+					Timeout:             time.Duration(cfg.TimeoutMs) * time.Millisecond,
+					Retry:               cfg.Retry,
+					Capture:             true,
+					TokenizerStrategy:   tokens.Strategy(spec.Tokenizer),
+					LocalPrompt:         true,
+					LocalTokensOverride: override,
+					CaseID:              j.p.ID,
+					CaseName:            j.p.Name,
+					Repetition:          j.rep,
 					Meta: map[string]any{
 						"targetIndex": j.ti,
 						"targetLabel": spec.Label,
@@ -292,7 +302,10 @@ feed:
 
 	refs := make([]TargetRef, len(cfg.Targets))
 	for i, t := range cfg.Targets {
-		refs[i] = TargetRef{TargetID: t.TargetID, Label: t.Label, Model: t.Model, Protocol: t.Protocol}
+		refs[i] = TargetRef{
+			TargetID: t.TargetID, Label: t.Label, Model: t.Model, Protocol: t.Protocol,
+			TokenFamily: resolved[i].TokenFamily,
+		}
 	}
 	report := BuildReport(cfg.AnomalyThreshold, cfg.Baseline, refs, prompts, b)
 	sess.SetExtra("auditReport", report)
@@ -305,6 +318,7 @@ type Cell struct {
 	TargetLabel  string   `json:"targetLabel"`
 	Model        string   `json:"model"`
 	Protocol     string   `json:"protocol"`
+	TokenFamily  string   `json:"tokenFamily,omitempty"`
 	PromptID     string   `json:"promptId"`
 	PromptName   string   `json:"promptName"`
 	Count        int      `json:"count"`
@@ -340,6 +354,7 @@ type TargetAgg struct {
 	TargetLabel    string   `json:"targetLabel"`
 	Model          string   `json:"model"`
 	Protocol       string   `json:"protocol"`
+	TokenFamily    string   `json:"tokenFamily,omitempty"`
 	ResponseModels []string `json:"responseModels,omitempty"`
 	Count          int      `json:"count"`
 	Success        int      `json:"success"`
@@ -380,10 +395,11 @@ type Report struct {
 
 // TargetRef is the protocol-independent identity of one comparison target.
 type TargetRef struct {
-	TargetID string `json:"targetId"`
-	Label    string `json:"label"`
-	Model    string `json:"model"`
-	Protocol string `json:"protocol"`
+	TargetID    string `json:"targetId"`
+	Label       string `json:"label"`
+	Model       string `json:"model"`
+	Protocol    string `json:"protocol"`
+	TokenFamily string `json:"tokenFamily,omitempty"`
 }
 
 // BuildReport converts raw per-request accumulators into the audit report.
@@ -400,7 +416,7 @@ func BuildReport(threshold float64, baseline string, targets []TargetRef, prompt
 	for i, t := range targets {
 		rep.Targets[i] = TargetAgg{
 			TargetIndex: i, TargetID: t.TargetID, TargetLabel: t.Label,
-			Model: t.Model, Protocol: t.Protocol,
+			Model: t.Model, Protocol: t.Protocol, TokenFamily: t.TokenFamily,
 			ResponseModels: model.TopNames(b.targetResponse[i], model.MaxResponseModels),
 		}
 	}
@@ -418,7 +434,7 @@ func BuildReport(threshold float64, baseline string, targets []TargetRef, prompt
 			}
 			cell := Cell{
 				TargetIndex: ti, TargetID: t.TargetID, TargetLabel: t.Label, Model: t.Model,
-				Protocol: t.Protocol, PromptID: p.ID, PromptName: p.Name,
+				Protocol: t.Protocol, TokenFamily: t.TokenFamily, PromptID: p.ID, PromptName: p.Name,
 				Count: acc.count, Success: acc.success, Errors: acc.errors, MissingUsage: acc.missing,
 				Cost: acc.cost,
 			}
@@ -446,7 +462,7 @@ func BuildReport(threshold float64, baseline string, targets []TargetRef, prompt
 				if cell.MinInput > 0 {
 					cell.SpreadPct = (cell.MaxInput - cell.MinInput) / cell.MinInput * 100
 				}
-				comparable := localComparable(t.Model, acc.localSource)
+				comparable := localComparable(t.Model, acc.localSource, t.TokenFamily)
 				if comparable && cell.LocalTokens > 0 {
 					cell.Overhead = cell.AvgInput - float64(cell.LocalTokens)
 					cell.OverheadPct = cell.Overhead / float64(cell.LocalTokens) * 100
@@ -522,7 +538,8 @@ func BuildReport(threshold float64, baseline string, targets []TargetRef, prompt
 
 	rep.Notes = []string{
 		"跨模型家族的 tokenizer 天然存在差异（例如 Gemini 与 GPT），Delta 只能横向参考。",
-		"判断“注入”应优先看本地分词器偏差（OverheadPct）：OpenAI 模型使用 tiktoken，Gemini 使用 Gemma SentencePiece。",
+		"判断“注入”应优先看本地偏差（OverheadPct）：提示词库按渠道口径维护了手工基准时优先采用，未维护时 OpenAI 使用 tiktoken、Gemini 使用 Gemma SentencePiece。",
+		"手工基准记录的内容摘要与当前提示词不一致时会自动失效，回退本地分词器，避免用旧数值误判。",
 		"若响应未返回 usage，则该行会标记为缺少 usage，Token 数由本地估算，结论仅供参考。",
 	}
 	return rep
@@ -547,10 +564,15 @@ func classifyCell(c *Cell, threshold float64) (string, []string) {
 		status = "inflation"
 		reasons = append(reasons, fmt.Sprintf("输入 Token 比基线高 %.1f%%", c.DeltaPct))
 	}
-	if strings.HasPrefix(c.LocalSource, "tiktoken") || strings.HasPrefix(c.LocalSource, "gemini-local") || c.LocalSource == "openai-online" {
+	if strings.HasPrefix(c.LocalSource, "tiktoken") || strings.HasPrefix(c.LocalSource, "gemini-local") ||
+		c.LocalSource == "openai-online" || c.LocalSource == "manual" {
 		if c.OverheadPct > threshold {
 			status = "inflation"
-			reasons = append(reasons, fmt.Sprintf("上报值比本地分词器高 %.1f%%（疑似注入）", c.OverheadPct))
+			base := "本地分词器"
+			if c.LocalSource == "manual" {
+				base = "手工基准"
+			}
+			reasons = append(reasons, fmt.Sprintf("上报值比%s高 %.1f%%（疑似注入）", base, c.OverheadPct))
 		}
 	}
 	if c.SpreadPct > threshold && status == "normal" {
@@ -566,17 +588,46 @@ func classifyCell(c *Cell, threshold float64) (string, []string) {
 	return status, reasons
 }
 
-func localComparable(modelName, source string) bool {
+func localComparable(modelName, source, tokenFamily string) bool {
 	fam := modelFamily(modelName)
+	// 渠道标注了口径时，以口径为准；未标注时回退模型名推断。
+	caliber := caliberFamily(tokenFamily)
 	switch {
+	case source == "manual":
+		// 手工基准是按渠道口径维护的，天然与目标一致。
+		return true
 	case strings.HasPrefix(source, "tiktoken"):
+		if caliber != "" {
+			return caliber == "openai"
+		}
 		return fam == "openai" || fam == "other"
 	case strings.HasPrefix(source, "gemini-local"):
+		if caliber != "" {
+			return caliber == "gemini"
+		}
 		return fam == "gemini"
 	case source == "openai-online":
+		if caliber != "" {
+			return caliber == "openai"
+		}
 		return fam == "openai"
 	default:
 		return false
+	}
+}
+
+// caliberFamily 把口径根节点归一到标准家族，无法识别时返回空。
+func caliberFamily(path string) string {
+	root := strings.ToLower(strings.TrimSpace(strings.Split(path, "/")[0]))
+	switch root {
+	case "gemini", "google":
+		return "gemini"
+	case "gpt", "openai", "azure", "az":
+		return "openai"
+	case "claude", "anthropic":
+		return "claude"
+	default:
+		return ""
 	}
 }
 

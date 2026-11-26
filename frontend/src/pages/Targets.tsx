@@ -6,7 +6,7 @@ import {
   CloudDownloadOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
-import type { Target } from '../types'
+import type { Target, TokenFamilyNode } from '../types'
 import { PageHeader, ProtocolTag } from '../components/common'
 import TargetFormModal from '../components/TargetFormModal'
 import { fmtTime } from '../format'
@@ -14,6 +14,7 @@ import { fmtTime } from '../format'
 export default function Targets() {
   const qc = useQueryClient()
   const { data: targets = [], isLoading } = useQuery({ queryKey: ['targets'], queryFn: api.targets, select: d => d.items })
+  const { data: meta } = useQuery({ queryKey: ['meta'], queryFn: api.meta })
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Target | null>(null)
   const [q, setQ] = useState('')
@@ -30,6 +31,20 @@ export default function Targets() {
     setEditing(t)
     setModalOpen(true)
   }
+
+  const familyLabels = useMemo(() => {
+    const out: Record<string, string> = {}
+    const walk = (nodes: TokenFamilyNode[], prefix: string, labelPrefix: string) => {
+      for (const n of nodes) {
+        const path = prefix ? `${prefix}/${n.key}` : n.key
+        const label = labelPrefix ? `${labelPrefix} / ${n.label}` : n.label
+        out[path] = label
+        walk(n.children || [], path, label)
+      }
+    }
+    walk(meta?.tokenFamilies || [], '', '')
+    return out
+  }, [meta])
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
@@ -123,6 +138,12 @@ export default function Targets() {
     {
       title: '协议', dataIndex: 'protocol', width: 110,
       render: (v: string) => <ProtocolTag protocol={v} />,
+    },
+    {
+      title: 'Token 口径', dataIndex: 'tokenFamily', width: 150,
+      render: (v: string) => v
+        ? <Tag color="geekblue">{familyLabels[v] || v}</Tag>
+        : <span className="muted">按分词器</span>,
     },
     {
       title: 'API Key', dataIndex: 'keyMasked', width: 170,
