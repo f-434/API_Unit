@@ -216,12 +216,16 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 		return fmt.Errorf("没有找到可用的提示词")
 	}
 	resolved := make([]protocol.TargetInfo, len(cfg.Targets))
+	// 末级口径 = 渠道的家族/平台 + 本次请求模型，例如 gemini/vt/gemini-2.5-pro。
+	// 基准匹配从末级开始逐级回退，未维护时交给本地分词器。
+	calibers := make([]string, len(cfg.Targets))
 	for i, t := range cfg.Targets {
 		info, err := modcommon.ResolveTarget(m.store, t.TargetID)
 		if err != nil {
 			return fmt.Errorf("%s: %w", t.Label, err)
 		}
 		resolved[i] = info
+		calibers[i] = tokenmeta.JoinModel(info.TokenFamily, t.Model)
 	}
 	sess.SetPlanned(int64(len(cfg.Targets)) * int64(len(prompts)) * int64(cfg.Repetitions))
 	b := NewAccumulator()
@@ -247,7 +251,7 @@ func (m *Module) Run(ctx context.Context, sess *engine.Session, cfgAny any) erro
 				// 未维护（或内容已变更导致基准失效）时回退分词器。
 				override := 0
 				if tokens.Strategy(spec.Tokenizer) != tokens.StrategyNone {
-					if n, _, ok := tokenmeta.ResolveOverride(j.p, resolved[j.ti].TokenFamily); ok {
+					if n, _, ok := tokenmeta.ResolveOverride(j.p, calibers[j.ti]); ok {
 						override = n
 					}
 				}
@@ -304,7 +308,8 @@ feed:
 	for i, t := range cfg.Targets {
 		refs[i] = TargetRef{
 			TargetID: t.TargetID, Label: t.Label, Model: t.Model, Protocol: t.Protocol,
-			TokenFamily: resolved[i].TokenFamily,
+			// 报告里使用末级口径，回填时可直接写到具体模型。
+			TokenFamily: calibers[i],
 		}
 	}
 	report := BuildReport(cfg.AnomalyThreshold, cfg.Baseline, refs, prompts, b)

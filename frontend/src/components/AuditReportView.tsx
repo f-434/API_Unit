@@ -55,6 +55,9 @@ export default function AuditReportView({ report, showCharts = true, hideSummary
     onSuccess: () => {
       message.success('已写入提示词基准')
       qc.invalidateQueries({ queryKey: ['prompts'] })
+      // 模型级回填会自动登记到口径树，刷新设置页与提示词编辑器的口径。
+      qc.invalidateQueries({ queryKey: ['meta'] })
+      qc.invalidateQueries({ queryKey: ['tokenFamilies'] })
     },
     onError: (e: any) => message.error(e?.message || '写入失败'),
   })

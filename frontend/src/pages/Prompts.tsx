@@ -11,7 +11,7 @@ import type { Prompt, TokenFamilyNode } from '../types'
 import { PageHeader, EllipsisText } from '../components/common'
 import { fmtTime } from '../format'
 
-type FamilyRow = { path: string; label: string; depth: number }
+type FamilyRow = { path: string; label: string; depth: number; extra?: boolean }
 
 // 把口径树拍平为“缩进 + 路径”，一级节点本身也可维护默认值。
 function flattenFamilies(nodes: TokenFamilyNode[], prefix = '', depth = 0): FamilyRow[] {
@@ -54,6 +54,22 @@ export default function Prompts() {
     for (const row of familyRows) out[row.path] = row.label
     return out
   }, [familyRows])
+  // 已有基准可能指向口径树里尚未登记的模型（如审计报告直接回填），
+  // 这些路径也要列出，否则无法查看或修改。
+  const overrideRows = useMemo(() => {
+    const known = new Set(familyRows.map(r => r.path))
+    const extras: FamilyRow[] = []
+    for (const path of Object.keys(cleanOverrides(hasOverrides))) {
+      if (known.has(path)) continue
+      const segments = path.split('/').filter(Boolean)
+      extras.push({
+        path, depth: Math.max(0, segments.length - 1), extra: true,
+        label: segments[segments.length - 1] || path,
+      })
+    }
+    extras.sort((a, b) => a.path.localeCompare(b.path))
+    return [...familyRows, ...extras]
+  }, [familyRows, hasOverrides])
 
   useEffect(() => {
     if (!open) { setTokenCount(undefined); setCounting(false); return }
@@ -150,7 +166,9 @@ export default function Prompts() {
   const existingOverrides = Object.keys(cleanOverrides(hasOverrides)).length > 0
 
   const overrideCell = (p: Prompt) => {
+    // 末级（模型）基准更能代表实际结果，列表优先展示。
     const entries = Object.entries(p.tokenOverrides || {})
+      .sort((a, b) => b[0].split('/').length - a[0].split('/').length)
     if (!entries.length) return <span className="muted">按分词器</span>
     const [path, tokens] = entries[0]
     return (
@@ -241,12 +259,12 @@ export default function Prompts() {
             </>
           )}
           <div style={{ border: '1px solid #f0f0f0', borderRadius: 6, padding: '6px 10px' }}>
-            {familyRows.length === 0 && <span className="muted">加载口径中…</span>}
-            {familyRows.map(row => (
+            {overrideRows.length === 0 && <span className="muted">加载口径中…</span>}
+            {overrideRows.map(row => (
               <div key={row.path} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '3px 0', paddingLeft: row.depth * 16 }}>
                 <span style={{ flex: 1 }}>
                   {row.label}
-                  {row.depth > 0 && <span className="muted small-mono" style={{ marginLeft: 8 }}>{row.path}</span>}
+                  {(row.depth > 0 || row.extra) && <span className="muted small-mono" style={{ marginLeft: 8 }}>{row.path}</span>}
                 </span>
                 <Form.Item name={['tokenOverrides', row.path]} noStyle>
                   <InputNumber min={1} precision={0} placeholder="按分词器" style={{ width: 150 }} />

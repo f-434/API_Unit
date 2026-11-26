@@ -8,12 +8,12 @@ import type { Target, TokenFamilyNode } from '../types'
 const NETWORK_ISSUE_RE = /tls handshake timeout|i\/o timeout|connection timed out|connection reset|network is unreachable/i
 const hasNetworkIssue = (r: any) => NETWORK_ISSUE_RE.test(JSON.stringify(r || {}))
 
-// 口径树支持任意层级，Cascader 的 value 即路径片段。
-function familyOptions(nodes?: TokenFamilyNode[]): any[] {
+// 渠道面向多个模型，只能标注到家族/平台；模型级随审计请求自动拼接。
+function familyOptions(nodes?: TokenFamilyNode[], depth = 0): any[] {
   return (nodes || []).map(n => ({
     value: n.key,
     label: n.label,
-    children: n.children?.length ? familyOptions(n.children) : undefined,
+    children: depth < 1 && n.children?.length ? familyOptions(n.children, depth + 1) : undefined,
   }))
 }
 
@@ -105,6 +105,7 @@ export default function TargetFormModal({
       onOk={() => form.submit()}
       confirmLoading={save.isPending}
       width={640}
+      centered
       destroyOnClose
     >
       <Form form={form} layout="vertical" onFinish={v => save.mutate(v)} onValuesChange={() => setTestResult(null)}>

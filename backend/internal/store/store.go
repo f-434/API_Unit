@@ -526,6 +526,21 @@ func (s *Store) EnsureBuiltinPrompts(seed []model.Prompt) error {
 	return nil
 }
 
+// DeleteBuiltinPrompts 下线不再内置的提示词，只删除内置行，避免误删同名自建提示词。
+func (s *Store) DeleteBuiltinPrompts(ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	ph := make([]string, len(ids))
+	args := make([]any, 0, len(ids))
+	for i, id := range ids {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	_, err := s.db.Exec(`DELETE FROM prompts WHERE builtin=1 AND id IN (`+strings.Join(ph, ",")+`)`, args...)
+	return err
+}
+
 // EnsureBuiltinAttacks inserts seed attacks only when their IDs are absent.
 func (s *Store) EnsureBuiltinAttacks(seed []model.Attack) error {
 	for i := range seed {

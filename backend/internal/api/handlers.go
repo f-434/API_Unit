@@ -139,8 +139,14 @@ func (s *Server) resolveTokenFamily(next *string, fallback string) (string, erro
 		return "", nil
 	}
 	// 口径树被删减后，旧渠道保留原路径仍可读取；只有新选择才要求节点存在。
-	if family != old && !tokenmeta.Load(s.store).HasPath(family) {
-		return "", fmt.Errorf("未知的 Token 口径：%s", family)
+	if family != old {
+		if !tokenmeta.Load(s.store).HasPath(family) {
+			return "", fmt.Errorf("未知的 Token 口径：%s", family)
+		}
+		// 渠道面向多个模型，只标注到家族或平台；模型级由审计请求自动拼接。
+		if tokenmeta.PathDepth(family) > tokenmeta.PlatformDepth {
+			return "", fmt.Errorf("Token 口径请选择家族或平台，具体模型由审计目标自动匹配")
+		}
 	}
 	return family, nil
 }
@@ -410,7 +416,7 @@ func (s *Server) handlePromptTokenReference(w http.ResponseWriter, r *http.Reque
 		apiError(w, http.StatusBadRequest, "请选择 Token 口径")
 		return
 	}
-	if req.Tokens > 0 && !tokenmeta.Load(s.store).HasPath(family) {
+	if req.Tokens > 0 && !tokenmeta.Load(s.store).AcceptsPath(family) {
 		apiError(w, http.StatusBadRequest, "未知的 Token 口径："+family)
 		return
 	}
@@ -435,6 +441,10 @@ func (s *Server) handlePromptTokenReference(w http.ResponseWriter, r *http.Reque
 	if err := s.store.SavePrompt(p); err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+	// 模型级回填同时登记到口径树，设置页可以直接看到并维护。
+	if req.Tokens > 0 {
+		_ = tokenmeta.EnsureModelPath(s.store, family)
 	}
 	applyPromptOverrideState(p)
 	writeJSON(w, http.StatusOK, map[string]any{"item": p})
@@ -832,7 +842,7 @@ func (s *Server) handleTokenizerCount(w http.ResponseWriter, r *http.Request) {
 	if strategy == "" {
 		strategy = tokens.StrategyAuto
 	}
-	if res, ok := s.manualTokenCount(req.PromptID, req.TargetID, req.Messages, strategy); ok {
+	if res, ok := s.manualTokenCount(req.PromptID, req.TargetID, req.Model, req.Messages, strategy); ok {
 		writeJSON(w, http.StatusOK, res)
 		return
 	}
@@ -864,7 +874,8 @@ func (s *Server) handleTokenizerCount(w http.ResponseWriter, r *http.Request) {
 }
 
 // manualTokenCount 在提示词内容未改动、且渠道标注了口径时返回手工基准。
-func (s *Server) manualTokenCount(promptID, targetID string, msgs []protocol.ChatMessage, strategy tokens.Strategy) (tokens.Result, bool) {
+// 模型级基准优先，未维护时逐级回退到平台/家族。
+func (s *Server) manualTokenCount(promptID, targetID, modelName string, msgs []protocol.ChatMessage, strategy tokens.Strategy) (tokens.Result, bool) {
 	if promptID == "" || targetID == "" || strategy == tokens.StrategyNone {
 		return tokens.Result{}, false
 	}
@@ -879,7 +890,7 @@ func (s *Server) manualTokenCount(promptID, targetID string, msgs []protocol.Cha
 	if err != nil {
 		return tokens.Result{}, false
 	}
-	n, key, ok := tokenmeta.ResolveOverride(*p, target.TokenFamily)
+	n, key, ok := tokenmeta.ResolveForModel(*p, target.TokenFamily, modelName)
 	if !ok {
 		return tokens.Result{}, false
 	}

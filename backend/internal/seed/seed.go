@@ -3,7 +3,6 @@ package seed
 
 import (
 	"fmt"
-	"strings"
 
 	"apiunit/internal/model"
 )
@@ -33,32 +32,25 @@ func Categories() []map[string]string {
 }
 
 func Prompts() []model.Prompt {
-	repeat := strings.Repeat("请分析下面这段重复文本的语义并给出三点摘要：企业网关需要在高并发下保持稳定，同时确保日志可追溯、配额可审计。\n", 40)
 	return []model.Prompt{
-		{
-			ID: "p_builtin_short_cn", Name: "短问答（中文）", Category: "builtin", Builtin: true,
-			Content: "今天天气真好。请用一句话说明 Token 审计的意义。",
-		},
-		{
-			ID: "p_builtin_long_cn", Name: "长中文（审计场景）", Category: "builtin", Builtin: true,
-			Content: "你是一名 API 网关审计员。请阅读以下描述并完成四个任务：\n1. 总结中转层可能多收输入 Token 的原因；\n2. 给出三种检测 Token 注入的方法；\n3. 说明流式与非流式 usage 的差异；\n4. 输出一个包含字段 prompt_tokens、completion_tokens、total_tokens 的 JSON 模板。\n描述：某团队使用统一的 OpenAI 兼容网关访问多个上游模型，他们发现相同提示词在不同渠道上的输入 Token 数量存在差异，怀疑中转层注入了额外内容。",
-		},
 		{
 			ID: "p_builtin_english", Name: "English audit", Category: "builtin", Builtin: true,
 			Content: "You are an API gateway auditor. Explain how a relay could inflate prompt token counts, list three detection strategies, and describe the difference between streaming usage and non-streaming usage. Keep the answer under 300 words.",
 		},
 		{
-			ID: "p_builtin_code", Name: "代码审查", Category: "builtin", Builtin: true,
-			Content: "请审查下面这段 Go 代码并指出至少两个问题：\n\nfunc fetchUsage(resp *http.Response) (int, error) {\n    defer resp.Body.Close()\n    var payload map[string]any\n    if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {\n        return 0, err\n    }\n    usage := payload[\"usage\"].(map[string]any)\n    return int(usage[\"total_tokens\"].(float64)), nil\n}",
-		},
-		{
 			ID: "p_builtin_mixed", Name: "中英混合", Category: "builtin", Builtin: true,
 			Content: "Please 用 JSON 返回一份 token audit report，字段包括：prompt_tokens、completion_tokens、delta_percent、conclusion。Conclusion 请用中文总结是否存在 token inflation 风险。",
 		},
-		{
-			ID: "p_builtin_repeat", Name: "重复压力", Category: "builtin", Builtin: true,
-			Content: repeat,
-		},
+	}
+}
+
+// RetiredPromptIDs 是已移除的内置提示词；启动时从旧数据库中清理。
+func RetiredPromptIDs() []string {
+	return []string{
+		"p_builtin_short_cn",
+		"p_builtin_long_cn",
+		"p_builtin_code",
+		"p_builtin_repeat",
 	}
 }
 

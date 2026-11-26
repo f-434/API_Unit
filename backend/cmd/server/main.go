@@ -48,6 +48,9 @@ func main() {
 	if err := st.EnsureBuiltinPrompts(seed.Prompts()); err != nil {
 		log.Printf("seed prompts: %v", err)
 	}
+	if err := st.DeleteBuiltinPrompts(seed.RetiredPromptIDs()); err != nil {
+		log.Printf("remove retired prompts: %v", err)
+	}
 	if err := st.EnsureBuiltinAttacks(seed.Attacks()); err != nil {
 		log.Printf("seed attacks: %v", err)
 	}

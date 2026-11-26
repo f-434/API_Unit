@@ -259,8 +259,7 @@ POST   /api/tokenizers/count
    - 关闭时不做本地/手工偏差判定，避免当前开关无效。
 4. **审计报告展示口径与来源**
    - 目标表头显示口径路径和本地来源（manual / tiktoken / gemini），方便排查。
-5. **模型级基准**
-   - 当前支持到平台级；如果同一渠道下不同模型 Token 差异明显，可扩展到第三级 `gemini/vt/gemini-2.5-pro`。
+5. ~~**模型级基准**~~ 已完成，见第 9 节。
 
 ---
 
@@ -281,3 +280,42 @@ npm run build
 ./build.sh          # Linux / macOS / Git Bash
 .\build.ps1         # Windows PowerShell
 ```
+
+---
+
+## 9. 续：口径具体化到模型（2026-11-26 下午）
+
+### 9.1 变更目标
+
+口径层级固定为 **家族 → 平台 → 具体模型**。渠道只需标注到家族/平台，模型级在审计时由实际请求的模型自动拼接；匹配顺序从末级开始向上回退：
+
+```text
+gemini/vt/gemini-2.5-pro → gemini/vt → gemini → 本地分词器
+```
+
+### 9.2 实现要点
+
+| 位置 | 改动 |
+| --- | --- |
+| `tokenmeta` | `MaxDepth=3`、`PlatformDepth=2`；新增 `ModelKey`（模型 ID 规范化）、`JoinModel`、`ResolveForModel`、`AcceptsPath`、`EnsureModelPath` |
+| 标识规则 | 允许 `.`、`:`、`@`（模型版本号/标签）；保存时校验不超过三级，历史超深树仍可读取 |
+| 审计运行时 | 末级口径 = 渠道家族/平台 + 请求模型；命中末级/平台/家族任一基准即使用，否则分词器 |
+| 审计报告 | 单元格与目标汇总的 `tokenFamily` 改为末级路径；「存基准」写到具体模型 |
+| 设置页 | 三级树：家族/平台可继续新增下级，模型级不再允许新增；标识输入自动规范化 |
+| 提示词库 | 校准面板列出口径树全部节点；已有但未登记的模型路径也会列出，便于修改 |
+| 渠道表单 | 口径级联只到平台，模型由审计请求决定 |
+| 回填 | 模型级路径自动挂到口径树，设置页可直接看到并重命名 |
+
+### 9.3 规范化规则
+
+- 小写；
+- 去掉 Google 的 `models/` 前缀；
+- 保留 `a-z0-9._:@-`，其他字符（含 `/`）折叠为 `-`；
+- 前后短横线去除。
+
+示例：`models/Gemini-2.5-Pro` → `gemini-2.5-pro`；`anthropic/claude-3.5-sonnet` → `anthropic-claude-3.5-sonnet`。
+
+### 9.4 验证
+
+- `go test ./...` 通过；新增 `ModelKey`、`JoinModel`、模型级回退、口径路径校验、回填登记等用例。
+- `npm run build` 通过。

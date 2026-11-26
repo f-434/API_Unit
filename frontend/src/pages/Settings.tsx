@@ -44,28 +44,64 @@ function removeFamily(nodes: TokenFamilyNode[], path: number[]): TokenFamilyNode
     : node)
 }
 
-function familyTreeValid(nodes: TokenFamilyNode[]): boolean {
-  if (!nodes.length) return false
+// 口径固定为 家族 → 平台 → 模型 三级。
+const MAX_FAMILY_DEPTH = 3
+
+// 与后端 tokenmeta.ModelKey 保持一致：小写、去掉 models/ 前缀、非法字符折叠为短横线。
+function sanitizeKey(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/^models\//, '')
+    .replace(/[^a-z0-9._:@-]+/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .replace(/-+$/, '')
+}
+
+// 计算某个节点下已有多少个子节点，用于定位刚新增的空节点。
+function childCountAt(nodes: TokenFamilyNode[], path: number[]): number {
+  let cur = nodes
+  for (let i = 0; i < path.length; i++) {
+    const node = cur[path[i]]
+    if (!node) return 0
+    if (i === path.length - 1) return node.children?.length || 0
+    cur = node.children || []
+  }
+  return nodes.length
+}
+
+function keyPlaceholder(depth: number): string {
+  if (depth === 0) return '家族标识'
+  if (depth === 1) return '平台标识'
+  return '模型 ID（/ 用 - 代替）'
+}
+
+function familyTreeValid(nodes: TokenFamilyNode[], depth = 1): boolean {
+  if (!nodes.length || depth > MAX_FAMILY_DEPTH) return false
   for (const node of nodes) {
     if (!node.key.trim() || !node.label.trim()) return false
-    if (node.children?.length && !familyTreeValid(node.children)) return false
+    if (node.children?.length && !familyTreeValid(node.children, depth + 1)) return false
   }
   return true
 }
 
-function FamilyRows({ nodes, path, onPatch, onAdd, onRemove }: {
+function FamilyRows({ nodes, path, editingKey, onPatch, onAdd, onRemove, onBlur }: {
   nodes: TokenFamilyNode[]
   path: number[]
+  editingKey: string | null
   onPatch: (path: number[], patch: Partial<TokenFamilyNode>) => void
   onAdd: (path: number[]) => void
   onRemove: (path: number[]) => void
+  onBlur: () => void
 }) {
   return (
     <>
       {nodes.map((node, i) => {
         const p = [...path, i]
+        const keyPath = p.join('.')
+        // 新节点的标识在失焦前保持可编辑，避免输入第一个字符后被替换成只读文本。
+        const keyEditable = !node.key || editingKey === keyPath
         return (
-          <div key={p.join('.')}>
+          <div key={keyPath}>
             <div className="caliber-row" data-depth={path.length}>
               <Input
                 size="small"
@@ -74,16 +110,19 @@ function FamilyRows({ nodes, path, onPatch, onAdd, onRemove }: {
                 placeholder="名称"
                 onChange={e => onPatch(p, { label: e.target.value })}
               />
-              {node.key
-                ? <span className="caliber-key mono">{node.key}</span>
-                : <Input
+              {keyEditable
+                ? <Input
                     size="small"
                     value={node.key}
-                    placeholder="标识（小写）"
-                    onChange={e => onPatch(p, { key: e.target.value.toLowerCase() })}
-                  />}
+                    placeholder={keyPlaceholder(path.length)}
+                    onChange={e => onPatch(p, { key: sanitizeKey(e.target.value) })}
+                    onBlur={onBlur}
+                  />
+                : <span className="caliber-key mono">{node.key}</span>}
               <div className="caliber-actions">
-                <Button size="small" type="text" icon={<PlusOutlined />} title="新增下级" onClick={() => onAdd(p)} />
+                {path.length < MAX_FAMILY_DEPTH - 1 && (
+                  <Button size="small" type="text" icon={<PlusOutlined />} title="新增下级" onClick={() => onAdd(p)} />
+                )}
                 <Button size="small" type="text" danger icon={<DeleteOutlined />} title="删除" onClick={() => onRemove(p)} />
               </div>
             </div>
@@ -92,9 +131,11 @@ function FamilyRows({ nodes, path, onPatch, onAdd, onRemove }: {
                 <FamilyRows
                   nodes={node.children || []}
                   path={p}
+                  editingKey={editingKey}
                   onPatch={onPatch}
                   onAdd={onAdd}
                   onRemove={onRemove}
+                  onBlur={onBlur}
                 />
               </div>
             )}
@@ -171,6 +212,7 @@ export default function Settings() {
     staleTime: 5 * 60 * 1000,
   })
   const [families, setFamilies] = useState<TokenFamilyNode[] | null>(null)
+  const [editingKey, setEditingKey] = useState<string | null>(null)
   useEffect(() => { if (familyData?.items) setFamilies(familyData.items) }, [familyData])
   const tree = families ?? familyData?.items ?? []
   const editTree = (fn: (prev: TokenFamilyNode[]) => TokenFamilyNode[]) =>
@@ -179,6 +221,7 @@ export default function Settings() {
     mutationFn: (items: TokenFamilyNode[]) => api.saveTokenFamilies(items),
     onSuccess: (r: any) => {
       setFamilies(r.items)
+      setEditingKey(null)
       message.success('已保存 Token 口径')
       qc.invalidateQueries({ queryKey: ['meta'] })
       qc.invalidateQueries({ queryKey: ['tokenFamilies'] })
@@ -285,7 +328,10 @@ export default function Settings() {
         <div className="panel-title">
           <span>Token 口径</span>
           <span style={{ flex: 1 }} />
-          <Button size="small" icon={<PlusOutlined />} onClick={() => editTree(prev => [...prev, { key: '', label: '' }])}>
+          <Button size="small" icon={<PlusOutlined />} onClick={() => {
+            setEditingKey(String(tree.length))
+            editTree(prev => [...prev, { key: '', label: '' }])
+          }}>
             新增一级
           </Button>
           <Button
@@ -314,9 +360,17 @@ export default function Settings() {
               <FamilyRows
                 nodes={tree}
                 path={[]}
+                editingKey={editingKey}
                 onPatch={(path, patch) => editTree(prev => updateFamily(prev, path, patch))}
-                onAdd={path => editTree(prev => addFamilyChild(prev, path))}
-                onRemove={path => editTree(prev => removeFamily(prev, path))}
+                onAdd={path => {
+                  setEditingKey([...path, childCountAt(tree, path)].join('.'))
+                  editTree(prev => addFamilyChild(prev, path))
+                }}
+                onRemove={path => {
+                  setEditingKey(null)
+                  editTree(prev => removeFamily(prev, path))
+                }}
+                onBlur={() => setEditingKey(null)}
               />
             )}
         </div>

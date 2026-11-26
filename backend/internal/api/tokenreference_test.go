@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"apiunit/internal/config"
@@ -87,7 +88,9 @@ func TestPromptTokenReferenceFlow(t *testing.T) {
 	}
 	if code := doJSON(t, http.MethodPost, ts.URL+"/api/prompts", map[string]any{
 		"name": "审计提示词", "category": "custom", "content": "审计提示词",
-		"tokenOverrides": map[string]int{"gemini": 20, "gemini/vt": 30},
+		"tokenOverrides": map[string]int{
+			"gemini": 20, "gemini/vt": 30, "gemini/vt/gemini-2.5-pro": 40,
+		},
 	}, &promptResp); code != http.StatusCreated {
 		t.Fatalf("create prompt HTTP %d", code)
 	}
@@ -96,10 +99,10 @@ func TestPromptTokenReferenceFlow(t *testing.T) {
 		t.Fatal("新建提示词的基准不应失效")
 	}
 
-	count := func(content string) tokens.Result {
+	count := func(content, modelName string) tokens.Result {
 		var res tokens.Result
 		if code := doJSON(t, http.MethodPost, ts.URL+"/api/tokenizers/count", map[string]any{
-			"model": "gemini-2.5-flash", "strategy": "auto", "targetId": targetID,
+			"model": modelName, "strategy": "auto", "targetId": targetID,
 			"promptId": promptID, "messages": []map[string]string{{"role": "user", "content": content}},
 		}, &res); code != http.StatusOK {
 			t.Fatalf("count HTTP %d", code)
@@ -107,40 +110,62 @@ func TestPromptTokenReferenceFlow(t *testing.T) {
 		return res
 	}
 
-	res := count("审计提示词")
-	if res.Source != "manual" || res.Tokens != 30 {
-		t.Fatalf("应命中 gemini/vt 手工基准 30，实际 %+v", res)
+	// 模型级基准优先。
+	if res := count("审计提示词", "gemini-2.5-pro"); res.Source != "manual" || res.Tokens != 40 {
+		t.Fatalf("应命中模型级基准 40，实际 %+v", res)
+	}
+	// 模型级未维护时回退平台级。
+	if res := count("审计提示词", "gemini-2.5-flash"); res.Source != "manual" || res.Tokens != 30 {
+		t.Fatalf("应回退平台级基准 30，实际 %+v", res)
 	}
 
 	// 内容变更但基准数值不变：基准自动失效，回退分词器。
 	if code := doJSON(t, http.MethodPut, ts.URL+"/api/prompts/"+promptID, map[string]any{
 		"name": "审计提示词", "category": "custom", "content": "审计提示词 v2",
-		"tokenOverrides": map[string]int{"gemini": 20, "gemini/vt": 30},
+		"tokenOverrides": map[string]int{
+			"gemini": 20, "gemini/vt": 30, "gemini/vt/gemini-2.5-pro": 40,
+		},
 	}, &promptResp); code != http.StatusOK {
 		t.Fatalf("update prompt HTTP %d", code)
 	}
 	if !promptResp.Item.TokenOverridesStale {
 		t.Fatal("内容变更后基准应标记失效")
 	}
-	if res := count("审计提示词 v2"); res.Source == "manual" {
+	if res := count("审计提示词 v2", "gemini-2.5-pro"); res.Source == "manual" {
 		t.Fatalf("失效基准不应参与计数，实际 %+v", res)
 	}
 
-	// 一键回填会按当前内容重新校准。
+	// 一键回填会按当前内容重新校准，并写入末级模型路径。
 	if code := doJSON(t, http.MethodPost, ts.URL+"/api/prompts/"+promptID+"/token-reference", map[string]any{
-		"family": "gemini/vt", "tokens": 42,
+		"family": "gemini/vt/gemini-2.5-flash", "tokens": 42,
 	}, &promptResp); code != http.StatusOK {
 		t.Fatalf("token-reference HTTP %d", code)
 	}
-	if promptResp.Item.TokenOverridesStale || promptResp.Item.TokenOverrides["gemini/vt"] != 42 {
+	if promptResp.Item.TokenOverridesStale || promptResp.Item.TokenOverrides["gemini/vt/gemini-2.5-flash"] != 42 {
 		t.Fatalf("回填后基准 = %+v", promptResp.Item)
 	}
-	if res := count("审计提示词 v2"); res.Source != "manual" || res.Tokens != 42 {
+	if res := count("审计提示词 v2", "gemini-2.5-flash"); res.Source != "manual" || res.Tokens != 42 {
 		t.Fatalf("回填后应命中 42，实际 %+v", res)
+	}
+	// 失效的旧基准不会因为本次回填被重新启用。
+	if res := count("审计提示词 v2", "gemini-2.5-pro"); res.Source == "manual" {
+		t.Fatalf("过时的模型基准不应被重新启用，实际 %+v", res)
+	}
+
+	// 回填的模型路径会自动登记到口径树。
+	var famResp struct {
+		Items []map[string]any `json:"items"`
+	}
+	if code := doJSON(t, http.MethodGet, ts.URL+"/api/token-families", nil, &famResp); code != http.StatusOK {
+		t.Fatalf("families HTTP %d", code)
+	}
+	raw, _ := json.Marshal(famResp.Items)
+	if !strings.Contains(string(raw), `"gemini-2.5-flash"`) {
+		t.Fatalf("回填的模型应登记到口径树: %s", raw)
 	}
 
 	// 编辑了内容但未存入提示词库时，不套用基准。
-	if res := count("临时改写的内容"); res.Source == "manual" {
+	if res := count("临时改写的内容", "gemini-2.5-pro"); res.Source == "manual" {
 		t.Fatalf("内容不一致时不应套用基准，实际 %+v", res)
 	}
 
@@ -150,6 +175,19 @@ func TestPromptTokenReferenceFlow(t *testing.T) {
 		"apiKey": "sk-test", "tokenFamily": "gemini/unknown",
 	}, nil); code != http.StatusBadRequest {
 		t.Fatalf("未知口径路径 HTTP %d, want 400", code)
+	}
+	// 渠道不能标注到模型级，模型由审计请求自动拼接。
+	if code := doJSON(t, http.MethodPost, ts.URL+"/api/targets", map[string]any{
+		"name": "too-deep", "baseUrl": "https://example.com", "protocol": "openai",
+		"apiKey": "sk-test", "tokenFamily": "gemini/vt/gemini-2.5-pro",
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("模型级渠道口径 HTTP %d, want 400", code)
+	}
+	// 超过三级的回填路径应拒绝。
+	if code := doJSON(t, http.MethodPost, ts.URL+"/api/prompts/"+promptID+"/token-reference", map[string]any{
+		"family": "gemini/vt/gemini-2.5-pro/extra", "tokens": 50,
+	}, nil); code != http.StatusBadRequest {
+		t.Fatalf("超深口径 HTTP %d, want 400", code)
 	}
 }
 
