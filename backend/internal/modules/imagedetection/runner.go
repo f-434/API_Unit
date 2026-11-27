@@ -24,6 +24,7 @@ import (
 
 	"apiunit/internal/engine"
 	"apiunit/internal/model"
+	"apiunit/internal/netguard"
 )
 
 const (
@@ -461,14 +462,14 @@ func (r *runner) finishImage(ctx context.Context, pr *PhaseReport, token, phase 
 	}
 	fileName := token + "_" + phase + ext
 	dir := filepath.Join(r.imageRoot, r.runID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		pr.Checks = append(pr.Checks, CheckDetail{Name: "图片保存", Status: StatusFail, Detail: "创建目录失败: " + err.Error()})
 		pr.Status = StatusFail
 		pr.Reason = checksReason(pr.Checks)
 		return nil, false
 	}
 	full := filepath.Join(dir, fileName)
-	if err := os.WriteFile(full, imgBytes, 0o644); err != nil {
+	if err := os.WriteFile(full, imgBytes, 0o600); err != nil {
 		pr.Checks = append(pr.Checks, CheckDetail{Name: "图片保存", Status: StatusFail, Detail: err.Error()})
 		pr.Status = StatusFail
 		pr.Reason = checksReason(pr.Checks)
@@ -569,6 +570,10 @@ func (r *runner) setAuthHeaders(req *http.Request, j job) {
 }
 
 func (r *runner) do(req *http.Request) (httpResult, error) {
+	// 这些请求携带目标 API Key，禁止通过明文 HTTP 发往公网。
+	if err := netguard.CheckURL(req.URL.String()); err != nil {
+		return httpResult{}, err
+	}
 	resp, err := r.http.Do(req)
 	if err != nil {
 		return httpResult{}, err
@@ -763,6 +768,10 @@ func (r *runner) fetchImageURL(ctx context.Context, rawURL string) ([]byte, erro
 	if strings.HasPrefix(strings.ToLower(rawURL), "data:") {
 		return r.decodeDataURLOrBase64(rawURL)
 	}
+	// 图片地址来自上游响应，防止被诱导去访问云元数据等链路本地服务。
+	if err := netguard.CheckFetchURL(rawURL); err != nil {
+		return nil, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -817,10 +826,10 @@ func (r *runner) saveAux(token, phase, kind string, raw []byte) {
 		return
 	}
 	dir := filepath.Join(r.imageRoot, r.runID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(dir, token+"_"+phase+"."+kind+".json"), raw, 0o644)
+	_ = os.WriteFile(filepath.Join(dir, token+"_"+phase+"."+kind+".json"), raw, 0o600)
 }
 
 func failPhase(pr PhaseReport, name, detail string) PhaseReport {

@@ -20,6 +20,7 @@ import (
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/stress"
 	"apiunit/internal/modules/tokenaudit"
+	"apiunit/internal/netguard"
 	"apiunit/internal/protocol"
 	"apiunit/internal/requestdiff"
 	"apiunit/internal/secret"
@@ -29,11 +30,16 @@ import (
 )
 
 func main() {
+	config.HardenProcess()
 	cfg := config.Load()
+	netguard.Configure(cfg.AllowInsecureUpstream)
+	if !cfg.AuthEnabled() {
+		log.Printf("警告：未设置 AUTH_PASSWORD，登录校验已关闭；仅应在本机调试时使用")
+	}
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatalf("create data dir: %v", err)
 	}
-	box, err := secret.LoadOrCreate(cfg.SecretPath())
+	box, err := secret.LoadOrCreateFrom(cfg.SecretPath(), cfg.MasterKey, cfg.MasterKeyFile)
 	if err != nil {
 		log.Fatalf("load secret: %v", err)
 	}

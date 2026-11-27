@@ -1,0 +1,90 @@
+name: apiunit
+
+services:
+  apiunit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: apiunit:latest
+    restart: unless-stopped
+    environment:
+      ADDR: 0.0.0.0:8788
+      DATA_DIR: /data
+      WEB_DIR: /app/web
+      # 必填：为空时 compose 直接报错，避免以无登录状态上线。
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?请在 .env 中设置 AUTH_PASSWORD}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      MAX_CONCURRENT_RUNS: ${MAX_CONCURRENT_RUNS:-4}
+      # 默认禁止把 API Key 通过明文 HTTP 发往公网地址。
+      ALLOW_INSECURE_UPSTREAM: ${ALLOW_INSECURE_UPSTREAM:-false}
+      # 反代终止 TLS 后会话 Cookie 强制带 Secure。
+      COOKIE_SECURE: "true"
+      TZ: ${TZ:-Asia/Shanghai}
+      # 可选：把主密钥与数据目录分离（推荐）。
+      # APIUNIT_MASTER_KEY_FILE: /run/secrets/apiunit_master_key
+    expose:
+      - "8788"
+    volumes:
+      - apiunit-data:/data
+    # 可选：主密钥放到 Docker secret，与数据卷分开保管。
+    # secrets:
+    #   - apiunit_master_key
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8788/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 20s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      apiunit:
+        condition: service_healthy
+    ports:
+      # 宿主机只暴露 8788，由 Caddy 在此端口终止 TLS。
+      - "8788:8788"
+    environment:
+      # 浏览器访问时使用的主机名或公网 IP，决定自签名证书的签发主体。
+      SITE_HOST: ${SITE_HOST:?请在 .env 中设置 SITE_HOST（公网 IP 或域名）}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - internal
+
+volumes:
+  apiunit-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:
+    driver: bridge
+
+# 可选：主密钥独立挂载
+# secrets:
+#   apiunit_master_key:
+#     file: ./secrets/apiunit_master_key

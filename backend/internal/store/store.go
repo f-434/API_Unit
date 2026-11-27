@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -36,7 +37,16 @@ func Open(path string, box *secret.Box) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	secureDBFiles(path)
 	return s, nil
+}
+
+// secureDBFiles 把 SQLite 主库及 WAL/SHM 文件权限收紧到 0600，
+// 避免同机其他用户读取测试记录与已加密的凭据。
+func secureDBFiles(path string) {
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		_ = os.Chmod(p, 0o600)
+	}
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -708,6 +718,10 @@ func (s *Store) DeletePrice(id string) error {
 
 // ---------- runs ----------
 
+// runConfigEncPrefix 标记已加密的运行配置。用户可自定义探针请求头，
+// 其中可能存在凭据，因此配置整体加密后再落库。
+const runConfigEncPrefix = "enc:v1:"
+
 func (s *Store) CreateRun(r *model.Run) error {
 	if r.CreatedAt == 0 {
 		r.CreatedAt = model.NowMs()
@@ -718,9 +732,21 @@ func (s *Store) CreateRun(r *model.Run) error {
 	if r.Summary == "" {
 		r.Summary = "{}"
 	}
-	_, err := s.db.Exec(`INSERT INTO runs(id,kind,status,config_json,summary_json,error,created_at,started_at,finished_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, r.ID, r.Kind, r.Status, r.Config, r.Summary, r.Error, r.CreatedAt, r.StartedAt, r.FinishedAt)
+	stored, err := s.box.Encrypt(r.Config)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO runs(id,kind,status,config_json,summary_json,error,created_at,started_at,finished_at)
+		VALUES(?,?,?,?,?,?,?,?,?)`, r.ID, r.Kind, r.Status, runConfigEncPrefix+stored, r.Summary, r.Error, r.CreatedAt, r.StartedAt, r.FinishedAt)
 	return err
+}
+
+// decryptRunConfig 兼容升级前以明文保存的历史配置。
+func (s *Store) decryptRunConfig(raw string) (string, error) {
+	if !strings.HasPrefix(raw, runConfigEncPrefix) {
+		return raw, nil
+	}
+	return s.box.Decrypt(strings.TrimPrefix(raw, runConfigEncPrefix))
 }
 
 func (s *Store) StartRun(id string) error {
@@ -752,6 +778,11 @@ func (s *Store) GetRun(id string) (*model.Run, error) {
 	}
 	if r.FinishedAt > 0 && r.StartedAt > 0 {
 		r.DurationMs = r.FinishedAt - r.StartedAt
+	}
+	if cfg, err := s.decryptRunConfig(r.Config); err == nil {
+		r.Config = cfg
+	} else {
+		return nil, fmt.Errorf("解密运行配置失败: %w", err)
 	}
 	return &r, nil
 }
@@ -798,6 +829,11 @@ func (s *Store) ListRuns(kind, status string, limit, offset int) ([]RunRow, int,
 		}
 		if r.FinishedAt > 0 && r.StartedAt > 0 {
 			r.DurationMs = r.FinishedAt - r.StartedAt
+		}
+		if cfg, err := s.decryptRunConfig(r.Config); err == nil {
+			r.Config = cfg
+		} else {
+			return nil, 0, fmt.Errorf("解密运行配置失败: %w", err)
 		}
 		_ = json.Unmarshal([]byte(r.Summary), &row.Summary)
 		out = append(out, row)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"apiunit/internal/model"
+	"apiunit/internal/netguard"
 )
 
 type ModelInfo struct {
@@ -204,6 +205,10 @@ func networkHint(warnings []string) string {
 }
 
 func (c *Client) fetchModels(ctx context.Context, at discoverAttempt) ([]ModelInfo, error) {
+	// 模型列表请求同样携带 API Key，必须确认目标不是明文公网地址。
+	if err := netguard.CheckURL(at.url); err != nil {
+		return nil, err
+	}
 	timeout := c.discoverTimeout
 	if timeout <= 0 {
 		timeout = 45 * time.Second

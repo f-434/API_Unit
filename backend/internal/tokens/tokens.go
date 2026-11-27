@@ -15,6 +15,7 @@ import (
 	"github.com/tiktoken-go/tokenizer"
 	"github.com/tiktoken-go/tokenizer/codec"
 
+	"apiunit/internal/netguard"
 	"apiunit/internal/protocol"
 )
 
@@ -161,6 +162,10 @@ func (c *Counter) CountChat(modelName string, msgs []protocol.ChatMessage, strat
 func (c *Counter) CountOnline(ctx context.Context, t protocol.TargetInfo, modelName string, msgs []protocol.ChatMessage) (Result, error) {
 	root, err := protocol.NormalizeBaseURL(t.BaseURL)
 	if err != nil {
+		return Result{}, err
+	}
+	// 在线计数同样携带 API Key，禁止明文发往公网。
+	if err := netguard.CheckURL(root); err != nil {
 		return Result{}, err
 	}
 	input := make([]map[string]string, 0, len(msgs))

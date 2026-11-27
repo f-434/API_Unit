@@ -25,12 +25,12 @@ func defaultHostedSettings() HostedSettings {
 			PathTemplate:       "/proof/{runToken}",
 			ExpectedNonceField: "secret",
 		},
+		// 旧版证明服务的默认值留空：具体环境、记录与关键词由用户在自己的配置中填写，
+		// 不在代码里固化第三方服务或个人数据。
 		Legacy: LegacyConfig{
 			EnvVar:           "MODEL_AUTHENTICITY_STATUS",
 			ExpectedEnvValue: "verified",
 			Collection:       "users",
-			ExpectedRecord:   map[string]any{"name": "王华", "sex": "男", "age": 21},
-			Keyword:          "t1yOS",
 		},
 	}
 }

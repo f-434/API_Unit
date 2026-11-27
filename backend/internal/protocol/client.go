@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"apiunit/internal/model"
+	"apiunit/internal/netguard"
 )
 
 const defaultMaxBody = 32 << 20
@@ -90,6 +91,11 @@ func (c *Client) Do(ctx context.Context, t TargetInfo, req ChatRequest) (*Outcom
 	}
 	root, err := NormalizeBaseURL(t.BaseURL)
 	if err != nil {
+		return out, err
+	}
+	// 发送 API Key 前确认链路是 HTTPS（本机/内网 HTTP 与显式放行除外）。
+	if err := netguard.CheckURL(root); err != nil {
+		out.ErrorMessage = err.Error()
 		return out, err
 	}
 	p := ResolveProtocol(t.Protocol, req.Model)

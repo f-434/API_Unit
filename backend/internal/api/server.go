@@ -2,9 +2,11 @@ package api
 
 import (
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -33,10 +35,11 @@ type Server struct {
 	client  *protocol.Client
 	box     *secret.Box
 	started time.Time
+	login   *loginGuard
 }
 
 func New(cfg *config.Config, st *store.Store, manager *engine.Manager, counter *tokens.Counter, client *protocol.Client, box *secret.Box) *Server {
-	return &Server{cfg: cfg, store: st, manager: manager, counter: counter, client: client, box: box, started: time.Now()}
+	return &Server{cfg: cfg, store: st, manager: manager, counter: counter, client: client, box: box, started: time.Now(), login: newLoginGuard()}
 }
 
 func (s *Server) Router() http.Handler {
@@ -145,8 +148,25 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; "+
+				"script-src 'self'; connect-src 'self'; font-src 'self' data:; worker-src 'self' blob:; "+
+				"object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
+		if s.usesHTTPS(r) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// usesHTTPS 判断当前请求是否通过 HTTPS 到达。反代场景读取 X-Forwarded-Proto，
+// 也可用 COOKIE_SECURE=true 强制认为始终是 HTTPS。
+func (s *Server) usesHTTPS(r *http.Request) bool {
+	if s.cfg.CookieSecure || r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
@@ -172,7 +192,12 @@ func (s *Server) sessionValid(r *http.Request) bool {
 	if err != nil || time.Now().Unix() > exp {
 		return false
 	}
-	return s.box.Verify(parts[0], parts[1])
+	return s.box.Verify(s.sessionData(parts[0]), parts[1])
+}
+
+// sessionData 把密码摘要混入签名：修改 AUTH_PASSWORD 后旧会话立即失效。
+func (s *Server) sessionData(exp string) string {
+	return exp + "." + hex.EncodeToString(s.cfg.CookieSecret)
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +219,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 		return
 	}
+	ip := clientIP(r)
+	if blocked, wait := s.login.blocked(ip); blocked {
+		w.Header().Set("Retry-After", strconv.Itoa(int(wait.Seconds())+1))
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"error": "尝试过于频繁，请稍后再试"})
+		return
+	}
 	var req struct {
 		Password string `json:"password"`
 	}
@@ -202,21 +233,37 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(req.Password), []byte(s.cfg.AuthPassword)) != 1 {
+		s.login.fail(ip)
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "密码错误"})
 		return
 	}
-	exp := time.Now().Add(7 * 24 * time.Hour).Unix()
-	value := fmt.Sprintf("%d.%s", exp, s.box.Sign(strconv.FormatInt(exp, 10)))
+	s.login.reset(ip)
+	expires := time.Now().Add(7 * 24 * time.Hour)
+	exp := expires.Unix()
+	value := fmt.Sprintf("%d.%s", exp, s.box.Sign(s.sessionData(strconv.FormatInt(exp, 10))))
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: value, Path: "/", HttpOnly: true,
-		SameSite: http.SameSiteStrictMode, MaxAge: 7 * 24 * 3600,
+		Secure: s.usesHTTPS(r), SameSite: http.SameSiteStrictMode,
+		Expires: expires, MaxAge: 7 * 24 * 3600,
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: "", Path: "/", HttpOnly: true,
+		Secure: s.usesHTTPS(r), SameSite: http.SameSiteStrictMode,
+		Expires: time.Unix(0, 0), MaxAge: -1,
+	})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// clientIP 取 RealIP 中间件写入的来源地址（已剥离端口）。
+func clientIP(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return strings.TrimSpace(r.RemoteAddr)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

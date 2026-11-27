@@ -222,11 +222,11 @@ func (c *Counter) downloadOne(ctx context.Context, spec geminiSpec, path, rawURL
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), spec.SHA256) {
 		return fmt.Errorf("%s: SHA-256 校验失败", host)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {

@@ -15,6 +15,7 @@ import (
 	"apiunit/internal/model"
 	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/modules/modcommon"
+	"apiunit/internal/netguard"
 	"apiunit/internal/protocol"
 	"apiunit/internal/seed"
 	"apiunit/internal/tokenmeta"
@@ -90,6 +91,16 @@ func validateTarget(req targetReq) (*model.Target, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	// 提前拦截会把 API Key 明文发往公网的上游，而不是等到测试时才报错。
+	if err := netguard.CheckURL(base); err != nil {
+		return nil, "", err
+	}
+	modelsPath := normalizeModelsPath(req.ModelsPath)
+	if strings.HasPrefix(modelsPath, "http://") || strings.HasPrefix(modelsPath, "https://") {
+		if err := netguard.CheckURL(modelsPath); err != nil {
+			return nil, "", err
+		}
+	}
 	proto := modcommon.NormProtocol(req.Protocol)
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
@@ -106,7 +117,7 @@ func validateTarget(req targetReq) (*model.Target, string, error) {
 	}
 	return &model.Target{
 		Name: name, BaseURL: base, Protocol: proto,
-		ModelsPath: normalizeModelsPath(req.ModelsPath),
+		ModelsPath: modelsPath,
 	}, key, nil
 }
 

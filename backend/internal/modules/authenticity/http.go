@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"apiunit/internal/model"
+	"apiunit/internal/netguard"
 	"apiunit/internal/protocol"
 )
 
@@ -150,6 +151,11 @@ func (r *modelRun) post(ctx context.Context, endpoint string, headers map[string
 
 func (r *modelRun) do(ctx context.Context, method, endpoint string, headers map[string]string, body any, timeout time.Duration) httpResult {
 	out := httpResult{Endpoint: endpoint}
+	// 请求会带上目标 API Key，禁止通过明文 HTTP 发往公网。
+	if err := netguard.CheckURL(endpoint); err != nil {
+		out.Err = err
+		return out
+	}
 	var raw []byte
 	var err error
 	if body != nil {

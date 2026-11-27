@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Box struct {
@@ -34,6 +35,38 @@ func LoadOrCreate(path string) (*Box, error) {
 			return nil, err
 		}
 	}
+	// 兼容历史数据：无论文件何时创建，都收回其他用户的读取权限。
+	_ = os.Chmod(path, 0o600)
+	return New(key)
+}
+
+// LoadOrCreateFrom 允许主密钥来自环境变量或独立的密钥文件，
+// 从而与 DATA_DIR 中的 SQLite 数据分开存放（Docker secrets、K8s Secret）。
+// 两者都为空时回退到 path 指定的密钥文件。
+func LoadOrCreateFrom(path, envValue, envFile string) (*Box, error) {
+	if raw := strings.TrimSpace(envValue); raw != "" {
+		key, err := decodeKey(raw)
+		if err != nil {
+			return nil, fmt.Errorf("APIUNIT_MASTER_KEY 无效: %w", err)
+		}
+		return New(key)
+	}
+	if file := strings.TrimSpace(envFile); file != "" {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("读取 APIUNIT_MASTER_KEY_FILE 失败: %w", err)
+		}
+		key, err := decodeKey(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("APIUNIT_MASTER_KEY_FILE 内容无效: %w", err)
+		}
+		return New(key)
+	}
+	return LoadOrCreate(path)
+}
+
+// New 用 32 字节原始密钥构造加解密器。
+func New(key []byte) (*Box, error) {
 	if len(key) != 32 {
 		return nil, fmt.Errorf("secret key must be 32 bytes, got %d", len(key))
 	}
@@ -46,6 +79,28 @@ func LoadOrCreate(path string) (*Box, error) {
 		return nil, err
 	}
 	return &Box{aead: aead, key: key}, nil
+}
+
+// decodeKey 支持 32 字节原始内容、64 位十六进制以及常见 Base64 变体。
+func decodeKey(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("密钥为空")
+	}
+	if b, err := hex.DecodeString(raw); err == nil && len(b) == 32 {
+		return b, nil
+	}
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(raw); err == nil && len(b) == 32 {
+			return b, nil
+		}
+	}
+	if len(raw) == 32 {
+		return []byte(raw), nil
+	}
+	return nil, fmt.Errorf("需要 32 字节密钥（原始/hex/base64）")
 }
 
 func (b *Box) Encrypt(plain string) (string, error) {

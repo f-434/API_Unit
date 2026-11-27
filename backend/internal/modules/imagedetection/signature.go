@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"apiunit/internal/netguard"
 )
 
 const (
@@ -217,7 +219,12 @@ func checkOnlineProvenance(ctx context.Context, settings Settings, raw []byte, f
 		return OnlineSignature{Status: OnlineError, Error: "结束上传请求失败: " + err.Error()}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, provenanceEndpoint(settings), &buf)
+	endpoint := provenanceEndpoint(settings)
+	// 在线验签请求会带上配置的 API Key，必须确认目标不是明文公网地址。
+	if err := netguard.CheckURL(endpoint); err != nil {
+		return OnlineSignature{Status: OnlineError, Error: err.Error()}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, &buf)
 	if err != nil {
 		return OnlineSignature{Status: OnlineError, Error: "构造请求失败: " + err.Error()}
 	}

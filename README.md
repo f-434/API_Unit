@@ -66,7 +66,16 @@ npm run dev
 
 打开 `http://127.0.0.1:5173`。
 
-### 2.3 一键构建
+### 2.3 Docker 部署（公网/服务器）
+
+```bash
+cp .env.example .env   # 填写 AUTH_PASSWORD 与 SITE_HOST
+docker compose up -d --build
+```
+
+访问 `https://<SITE_HOST>:8788`。宿主机只暴露 8788，由 Caddy 终止 TLS（无域名时使用内置 CA 自签名证书）。完整步骤、证书信任与备份见 [docs/deploy.md](docs/deploy.md)。
+
+### 2.4 一键构建
 
 ```bash
 ./build.sh          # Linux / macOS / Git Bash
@@ -88,7 +97,7 @@ DATA_DIR=./backend/data ./apiunit
 
 `WEB_DIR` 未显式设置时，会在 `web/` 与 `backend/web/` 中自动探测。
 
-### 2.4 本地模拟上游（可选）
+### 2.5 本地模拟上游（可选）
 
 ```bash
 cd backend
@@ -140,6 +149,11 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | `DATA_DIR` | `./data` | SQLite、加密密钥、分词器模型目录 |
 | `WEB_DIR` | 自动探测 | 前端构建目录 |
 | `AUTH_PASSWORD` | 空 | 设置后启用登录密码；接口使用 HMAC 签名 Cookie |
+| `AUTH_PASSWORD_FILE` | 空 | 从文件读取登录密码（优先级低于 `AUTH_PASSWORD`），适合 Docker secret |
+| `COOKIE_SECURE` | `false` | 强制会话 Cookie 带 `Secure`；反代场景会自动识别 `X-Forwarded-Proto: https` |
+| `ALLOW_INSECURE_UPSTREAM` | `false` | 允许向公网地址用明文 HTTP 发送 API Key；默认仅放行本机/内网 |
+| `APIUNIT_MASTER_KEY` | 空 | 32 字节主密钥（原始/hex/base64），用于把主密钥与数据目录分离 |
+| `APIUNIT_MASTER_KEY_FILE` | 空 | 主密钥文件路径，优先级低于 `APIUNIT_MASTER_KEY` |
 | `RETENTION_DAYS` | `30` | 历史测试保留天数，启动与每日清理 |
 | `MAX_CONCURRENT_RUNS` | `4` | 同时运行的测试数上限 |
 | `MAX_REQUEST_BODY_MB` | `32` | API 请求体上限 |
@@ -159,7 +173,11 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 安全说明：
 
 - API Key 使用随机 32 字节密钥 AES-256-GCM 加密后入库，接口只返回掩码；不会写入浏览器 `localStorage`。
-- 默认只监听本机。若暴露到网络，请务必设置 `AUTH_PASSWORD` 并放在可信反向代理之后。
+- 运行配置（可能含自定义探针请求头凭据）同样加密落库，历史明文配置在读取时透明兼容。
+- 默认只监听本机。若暴露到网络，请务必设置 `AUTH_PASSWORD` 并放在终止 TLS 的可信反向代理之后；`docker-compose.yml` 已内置该结构。
+- 登录失败按来源 IP 限流（10 分钟 5 次，封禁 15 分钟），会话 Cookie 为 `HttpOnly` + `SameSite=Strict` + 自动 `Secure`。
+- 默认拒绝通过明文 HTTP 向公网地址发送 API Key；本机与内网地址仍可直连。
+- 数据目录权限为 0700，SQLite 与 `secret.key` 为 0600；主密钥可用 `APIUNIT_MASTER_KEY_FILE` 与数据卷分开存放。
 - 本系统不再提供任意 URL 代理接口，避免 SSRF 面。
 
 ---

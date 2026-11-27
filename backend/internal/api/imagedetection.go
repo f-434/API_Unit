@@ -113,5 +113,7 @@ func (s *Server) handleImageDetectionFile(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Cross-Origin-Resource-Policy", "cross-origin")
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Type")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// 图片链接虽然不可枚举，也不要被搜索引擎收录。
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	http.ServeFile(w, r, full)
 }
