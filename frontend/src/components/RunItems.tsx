@@ -208,6 +208,10 @@ export default function RunItems({ runId, kind, models = [], polling = false }: 
         return <Tag color={color}>{label}</Tag>
       },
     }] : []),
+    ...(kind === 'claude_signature' ? [
+      { title: '请求 ID', dataIndex: 'requestId', width: 190, render: (v: string) => <span className="small-mono">{v || '-'}</span> },
+      { title: '核验', dataIndex: 'verdict', width: 100, render: (v: string) => <VerdictTag verdict={v} /> },
+    ] : []),
     { title: '状态', width: 105, render: (_: any, it: Item) => statusTag(it) },
     { title: '延迟', dataIndex: 'latencyMs', width: 90, render: (v: number) => fmtMs(v) },
     { title: 'TTFT', dataIndex: 'ttftMs', width: 90, render: (v: number) => fmtMs(v) },

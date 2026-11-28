@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Alert, Button, Tag } from 'antd'
 import {
-  BugOutlined, DiffOutlined, FileSearchOutlined, ThunderboltOutlined,
+  ApiOutlined, BugOutlined, DiffOutlined, FileSearchOutlined, ThunderboltOutlined,
   SafetyCertificateOutlined, PictureOutlined,
 } from '@ant-design/icons'
 import { api } from '../api'
@@ -17,6 +17,7 @@ const quick = [
   { key: '/injection/new', icon: <BugOutlined />, title: '提示词注入', color: '#dc2626' },
   { key: '/authenticity/new', icon: <SafetyCertificateOutlined />, title: '模型真实性', color: '#0891b2' },
   { key: '/image-detection/new', icon: <PictureOutlined />, title: '生图检测', color: '#c026d3' },
+  { key: '/claude/signature', icon: <ApiOutlined />, title: 'signature 签名核验', color: '#2563eb' },
 ]
 
 export default function Dashboard() {

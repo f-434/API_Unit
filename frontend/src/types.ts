@@ -1,4 +1,4 @@
-export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection' | 'authenticity' | 'image_detection'
+export type Kind = 'stress' | 'token_audit' | 'request_diff' | 'injection' | 'authenticity' | 'image_detection' | 'claude_signature'
 export type Protocol = 'auto' | 'openai' | 'claude' | 'gemini'
 export type RunStatus = 'queued' | 'running' | 'completed' | 'stopped' | 'failed' | 'interrupted'
 
@@ -890,3 +890,133 @@ export interface TokenizerStatus {
 }
 
 export interface Paged<T> { items: T[]; total: number; limit?: number; offset?: number }
+
+// ---------- Claude signature 签名核验 ----------
+
+export type SignatureVerdict = 'pass' | 'suspicious' | 'inconclusive' | 'error'
+export type SignatureCheckStatus = 'pass' | 'fail' | 'warn' | 'na'
+export type SignatureLayout = 'full' | 'minimal' | 'unknown' | 'opaque'
+
+export interface SignatureCheck {
+  id: string
+  name: string
+  status: SignatureCheckStatus
+  evidence?: string
+}
+
+export interface SignatureBlock {
+  type: string
+  textChars?: number
+  hasSignature?: boolean
+}
+
+export interface SignatureUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+export interface SignatureInfo {
+  blockType: string
+  signatureChars: number
+  protoBytes: number
+  layout: SignatureLayout
+  model?: string
+  modelSource?: 'meta' | 'nested' | 'search' | string
+  embeddedBlockType?: string
+  blockTypeSource?: 'meta' | 'search' | string
+  uuid?: string
+  uuidSource?: string
+  unixTimestamp?: number
+  timestampSource?: string
+  signedAtUtc?: string
+  signedAtUtc8?: string
+  metaPath?: string
+  metaFields?: number[]
+  totalFields: number
+  warnings?: string[]
+  tree?: string
+  signaturePrefix?: string
+  signatureSha256?: string
+  parseError?: string
+  opaque?: boolean
+  recognized: boolean
+}
+
+export interface SignatureRequest {
+  index: number
+  globalIndex: number
+  targetId: string
+  targetName: string
+  model: string
+  responseModel?: string
+  protocol: string
+  endpoint?: string
+  requestId?: string
+  responseId?: string
+  httpStatus: number
+  latencyMs: number
+  requestTime: number
+  prompt: string
+  verdict: SignatureVerdict
+  verdictLabel: string
+  error?: string
+  errorType?: string
+  stopReason?: string
+  attempts: number
+  cost: number
+  usage: SignatureUsage
+  blocks: SignatureBlock[]
+  signatures: SignatureInfo[]
+  checks: SignatureCheck[]
+  duplicate?: boolean
+}
+
+export interface SignatureModelReport {
+  targetId: string
+  targetName: string
+  model: string
+  protocol: string
+  endpoint?: string
+  authMode?: string
+  requests: number
+  passed: number
+  suspicious: number
+  inconclusive: number
+  errors: number
+  signatures: number
+  parsed: number
+  duplicates: number
+  cost: number
+  durationMs: number
+  error?: string
+}
+
+export interface SignatureSummary {
+  models: number
+  requests: number
+  planned: number
+  passed: number
+  suspicious: number
+  inconclusive: number
+  errors: number
+  signatures: number
+  parsed: number
+  full: number
+  minimal: number
+  unknown: number
+  opaque: number
+  duplicates: number
+  withRequestId: number
+  cost: number
+  elapsedMs: number
+}
+
+export interface SignatureReport {
+  models: SignatureModelReport[]
+  requests: SignatureRequest[]
+  summary: SignatureSummary
+  notes: string[]
+}

@@ -16,6 +16,7 @@ import (
 	"apiunit/internal/engine"
 	"apiunit/internal/model"
 	"apiunit/internal/modules/authenticity"
+	"apiunit/internal/modules/claudesignature"
 	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/stress"
@@ -82,6 +83,7 @@ func main() {
 	manager.Register(injection.New(st, client))
 	manager.Register(authenticity.New(st))
 	manager.Register(imagedetection.New(st, imagedetection.ImageDir(cfg.DataDir)))
+	manager.Register(claudesignature.New(st))
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,

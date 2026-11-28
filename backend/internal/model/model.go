@@ -31,6 +31,8 @@ const (
 	KindInjection      RunKind = "injection"
 	KindAuthenticity   RunKind = "authenticity"
 	KindImageDetection RunKind = "image_detection"
+	// KindClaudeSignature 是 Claude 专案下的 thinking signature 解析与一致性核验。
+	KindClaudeSignature RunKind = "claude_signature"
 )
 
 type RunStatus string

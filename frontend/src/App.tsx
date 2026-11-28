@@ -9,6 +9,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Layout, Menu, Spin, Tag, Tooltip } from "antd";
 import {
+  ApiOutlined,
   AppstoreOutlined,
   BugOutlined,
   CloudServerOutlined,
@@ -38,6 +39,7 @@ import InjectionNew from "./pages/InjectionNew";
 import AuthenticityNew from "./pages/AuthenticityNew";
 import AuthenticityTemplates from "./pages/AuthenticityTemplates";
 import ImageDetectionNew from "./pages/ImageDetectionNew";
+import ClaudeSignatureNew from "./pages/ClaudeSignatureNew";
 import History from "./pages/History";
 import RunDetail from "./pages/RunDetail";
 import QuickActionsFab, { type QuickAction } from "./components/QuickActionsFab";
@@ -54,6 +56,14 @@ const menuItems = [
   { key: "/authenticity/new", icon: <SafetyCertificateOutlined />, label: "模型真实性" },
   { key: "/authenticity/templates", icon: <FileSearchOutlined />, label: "真实性用例" },
   { key: "/image-detection/new", icon: <PictureOutlined />, label: "生图检测" },
+  {
+    key: "claude-suite",
+    icon: <ApiOutlined />,
+    label: "Claude专案",
+    children: [
+      { key: "/claude/signature", label: "signature签名核验" },
+    ],
+  },
   { key: "/runs", icon: <HistoryOutlined />, label: "测试历史" },
   { type: "divider" as const },
   { key: "/targets", icon: <CloudServerOutlined />, label: "上游" },
@@ -116,6 +126,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     if (p.startsWith("/authenticity/templates")) return ["/authenticity/templates"];
     if (p.startsWith("/authenticity")) return ["/authenticity/new"];
     if (p.startsWith("/image-detection")) return ["/image-detection/new"];
+    if (p.startsWith("/claude/signature")) return ["/claude/signature"];
     if (p.startsWith("/stress")) return ["/stress/new"];
     return [];
   }, [location.pathname]);
@@ -134,7 +145,7 @@ function Shell({ children }: { children: React.ReactNode }) {
         theme="light"
         breakpoint="lg"
         collapsedWidth={0}
-        width={224}
+        width={256}
       >
         <div className="app-brand">
           <div className="logo">AU</div>
@@ -148,6 +159,7 @@ function Shell({ children }: { children: React.ReactNode }) {
             mode="inline"
             inlineIndent={16}
             selectedKeys={selected}
+            defaultOpenKeys={["claude-suite"]}
             items={menuItems as any}
             onClick={({ key }) => navigate(key)}
           />
@@ -198,6 +210,7 @@ export default function App() {
                 <Route path="/authenticity/new" element={<AuthenticityNew />} />
                 <Route path="/authenticity/templates" element={<AuthenticityTemplates />} />
                 <Route path="/image-detection/new" element={<ImageDetectionNew />} />
+                <Route path="/claude/signature" element={<ClaudeSignatureNew />} />
                 <Route path="/runs" element={<History />} />
                 <Route path="/runs/:id" element={<RunDetail />} />
                 <Route path="/targets" element={<Targets />} />

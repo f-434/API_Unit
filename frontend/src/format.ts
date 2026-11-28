@@ -64,6 +64,7 @@ export const kindLabel = (k?: string) => {
     case 'injection': return '提示词注入'
     case 'authenticity': return '模型真实性'
     case 'image_detection': return '生图检测'
+    case 'claude_signature': return 'signature 签名核验'
     default: return k || '-'
   }
 }
@@ -76,6 +77,7 @@ export const kindColor = (k?: string) => {
     case 'injection': return 'red'
     case 'authenticity': return 'cyan'
     case 'image_detection': return 'magenta'
+    case 'claude_signature': return 'geekblue'
     default: return 'default'
   }
 }
@@ -116,6 +118,8 @@ export const verdictLabel = (v?: string) => {
     case 'pass': return '通过'
     case 'fail': return '失败'
     case 'warn': return '警告'
+    case 'suspicious': return '可疑'
+    case 'inconclusive': return '证据不足'
     default: return v || '-'
   }
 }
@@ -133,6 +137,8 @@ export const verdictColor = (v?: string) => {
     case 'pass': return 'success'
     case 'fail': return 'error'
     case 'warn': return 'warning'
+    case 'suspicious': return 'warning'
+    case 'inconclusive': return 'default'
     default: return 'default'
   }
 }

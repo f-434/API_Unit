@@ -10,6 +10,7 @@
 | **提示词注入** | 内置攻击用例 + 规则判定 + LLM-as-judge，输出 ASR、分类风险与逐用例明细 |
 | **模型真实性** | 官方接口指纹 + 响应来源 + 本地随机 nonce 工具回环 + 可选自建 MCP/证明页；多模型并发，输出通过/可疑/仿冒/证据不足 |
 | **生图检测** | 真实验证文生图/改图/聊天生图的尺寸、格式与透明背景；按原始字节保存图片，检查 C2PA 元数据与 SynthID 水印，并提供 Adobe / OpenAI / Azure 在线校验入口 |
+| **signature 签名核验** | Claude 专案：采样 thinking 签名，用通用 protobuf 解包器提取 model / block type / UUID / 时间戳，按 `oneapi-request-id` 逐条列出解析结果与一致性检查 |
 
 系统不修改、不侵入 New API 源码，只通过标准 HTTP 接口访问网关。
 
@@ -361,6 +362,42 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 
 ---
 
+### 5.7 signature 签名核验（Claude 专案）
+
+**目标**：连续采样 Claude Messages API 的 thinking 签名，解包其中的 protobuf 结构，并检查签名内嵌元数据与本次请求是否一致。
+
+**采样**
+
+- 每个模型独立设置请求次数；模型之间按配置并发，同一模型内按间隔串行。
+- 每次请求使用不同提示词（自动数学题 + 随机 nonce），避免重复提示词导致 thinking 被抑制。
+- thinking 模式支持 `auto` / `adaptive` / `budget` / `off`，可选 `output_config.effort`。
+- 参数被上游拒绝时按 `首选 → 去掉 effort → budget → adaptive → off` 自动回退；鉴权、模型不存在等错误会停止该模型后续请求。
+- 只重试传输错误、429 与 5xx；参数回退不占重试次数。
+
+**protobuf 解包**
+
+- 通用 wire 格式解析，不依赖 `.proto`：varint / fixed32 / fixed64 / length-delimited / group 全部处理。
+- 兼容标准与 URL-safe base64、有无填充；截断载荷保留已解析结果并记录警告。
+- 元数据字段号（block type=8、model=6、uuid=11、timestamp=21、嵌套 model=19）仅作提示；缺失时回退到整棵树搜索。
+- 输出：布局（full / minimal / unknown / opaque）、内嵌模型、块类型、UUID、签名时间（UTC+8）、元数据路径与字段、解析树、警告。
+
+**一致性检查**
+
+- HTTP 成功、返回 thinking 块、签名存在、Base64 解码、protobuf 解析、元数据识别。
+- 块类型一致、模型一致（支持日期后缀别名；同家族不同版本记为警告）、签名时间与请求时间相差是否合理。
+- 同一上游同一模型下，不同提示词返回完全相同的签名记为可疑（缓存回放/固定响应）。
+- 结论：`通过` / `可疑` / `证据不足` / `执行错误`；`redacted_thinking` 与未返回 thinking 只记为证据不足，不判假。
+- 主列表按请求展示 `oneapi-request-id`（缺失时回退常见 request-id 响应头）、解析内容与判定；支持展开查看完整检查项、protobuf 树和签名前缀。
+
+**边界**
+
+- signature 是 base64 编码的 protobuf，不是加密数据；本模块做结构解包，不是解密。
+- 无法验证密码学签名：客户端拿不到 Anthropic 的验签公钥；`通过` 只表示结构与元数据未发现矛盾。
+- 部分签名版本按设计只含 block type，缺少 model / UUID / 时间戳属于正常情况。
+- 请求 JSON / 响应 JSON 仍按项目通用明细保存；导出 CSV 会改为签名专用列。
+
+---
+
 ## 6. API 摘要
 
 所有接口位于 `/api`；设置 `AUTH_PASSWORD` 后除健康检查与登录外均需 Cookie。
@@ -394,7 +431,7 @@ Base URL 支持带或不带 `/v1`、`/v1beta`、`/v1/chat/completions` 等后缀
 | GET/POST | `/api/image-detection/config` | 生图检测的在线验签 Base URL / OpenAI API Key（加密存储，读取时打码） |
 | GET | `/api/image-detection/images/{runId}/{file}` | 生图检测图片；免登录、允许跨域，供 Adobe Inspect 等在线校验站点抓取 |
 
-测试类型 `kind`：`stress`、`token_audit`、`request_diff`、`injection`、`authenticity`、`image_detection`。
+测试类型 `kind`：`stress`、`token_audit`、`request_diff`、`injection`、`authenticity`、`image_detection`、`claude_signature`。
 
 ---
 
@@ -450,6 +487,7 @@ npm run build
 - tiktoken / 启发式 / Gemini 规格选择
 - 注入规则判定与裁判 JSON 解析
 - 模型真实性：OpenAI / Claude / Gemini 两轮工具回环、随机 nonce 防回放、MCP/证明页配置加密、鉴权失败与“工具不支持”不误判
+- signature 签名核验：protobuf 解包、URL-safe base64、截断载荷、元数据一致性、thinking 参数回退、鉴权失败停止、重复签名识别
 
 端到端已验证：
 

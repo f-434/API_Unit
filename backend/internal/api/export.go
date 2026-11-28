@@ -14,6 +14,7 @@ import (
 
 	"apiunit/internal/model"
 	"apiunit/internal/modules/authenticity"
+	"apiunit/internal/modules/claudesignature"
 	"apiunit/internal/modules/imagedetection"
 	"apiunit/internal/modules/injection"
 	"apiunit/internal/modules/tokenaudit"
@@ -27,20 +28,21 @@ type stressExport struct {
 }
 
 type exportData struct {
-	Run            model.Run
-	Headline       model.RunSummary
-	Created        string
-	Started        string
-	Finished       string
-	Duration       string
-	ConfigJSON     string
-	Items          []model.Item
-	Stress         *stressExport
-	Audit          *tokenaudit.Report
-	RequestDiff    *requestdiff.Report
-	Injection      *injection.Report
-	Authenticity   *authenticity.Report
-	ImageDetection *imagedetection.Report
+	Run             model.Run
+	Headline        model.RunSummary
+	Created         string
+	Started         string
+	Finished        string
+	Duration        string
+	ConfigJSON      string
+	Items           []model.Item
+	Stress          *stressExport
+	Audit           *tokenaudit.Report
+	RequestDiff     *requestdiff.Report
+	Injection       *injection.Report
+	Authenticity    *authenticity.Report
+	ImageDetection  *imagedetection.Report
+	ClaudeSignature *claudesignature.Report
 }
 
 func (s *Server) handleRunExport(w http.ResponseWriter, r *http.Request) {
@@ -93,6 +95,10 @@ func (s *Server) exportJSON(w http.ResponseWriter, r *http.Request, view *model.
 }
 
 func (s *Server) exportCSV(w http.ResponseWriter, id string) {
+	if run, err := s.store.GetRun(id); err == nil && run.Kind == model.KindClaudeSignature {
+		s.exportSignatureCSV(w, id, run)
+		return
+	}
 	items, err := s.store.ListItemsAll(id, 0, false)
 	if err != nil {
 		apiError(w, http.StatusInternalServerError, err.Error())
@@ -121,6 +127,80 @@ func (s *Server) exportCSV(w http.ResponseWriter, id string) {
 			it.OutputText, it.RequestJSON, it.ResponseJSON,
 		})
 	}
+}
+
+// exportSignatureCSV 输出签名核验专用列；通用 items CSV 不含解析树等模块字段。
+func (s *Server) exportSignatureCSV(w http.ResponseWriter, id string, run *model.Run) {
+	var summary model.RunSummary
+	if run.Summary != "" {
+		_ = json.Unmarshal([]byte(run.Summary), &summary)
+	}
+	var report claudesignature.Report
+	if summary.Data != nil {
+		if raw, err := json.Marshal(summary.Data); err == nil {
+			_ = json.Unmarshal(raw, &report)
+		}
+	}
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="apiunit-%s-signatures.csv"`, id))
+	_, _ = w.Write([]byte{0xEF, 0xBB, 0xBF}) // UTF-8 BOM for Excel
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+	_ = cw.Write([]string{
+		"global_index", "request_id", "response_id", "target", "model", "response_model",
+		"http_status", "latency_ms", "verdict", "attempts", "stop_reason",
+		"signatures", "parsed", "layout", "embedded_model", "embedded_block_type", "uuid",
+		"signed_at_utc8", "signature_chars", "proto_bytes", "total_fields", "duplicate",
+		"input_tokens", "output_tokens", "cost", "error", "parse_error", "warnings",
+	})
+	for _, r := range report.Requests {
+		layouts := make([]string, 0, len(r.Signatures))
+		models := make([]string, 0, len(r.Signatures))
+		blocks := make([]string, 0, len(r.Signatures))
+		uuids := make([]string, 0, len(r.Signatures))
+		signed := make([]string, 0, len(r.Signatures))
+		warnings := make([]string, 0)
+		var chars, bytes, fields, parsed int
+		parseErrs := make([]string, 0)
+		for _, sig := range r.Signatures {
+			if sig.Opaque {
+				layouts = append(layouts, "opaque")
+			}
+			if sig.ParseError != "" {
+				parseErrs = append(parseErrs, sig.ParseError)
+				continue
+			}
+			parsed++
+			layouts = append(layouts, sig.Layout)
+			models = append(models, sig.Model)
+			blocks = append(blocks, sig.EmbeddedBlockType)
+			uuids = append(uuids, sig.UUID)
+			signed = append(signed, sig.SignedAtUTC8)
+			warnings = append(warnings, sig.Warnings...)
+			chars += sig.SignatureChars
+			bytes += sig.ProtoBytes
+			fields += sig.TotalFields
+		}
+		_ = cw.Write([]string{
+			strconv.Itoa(r.GlobalIndex), r.RequestID, r.ResponseID, r.TargetName, r.Model, r.ResponseModel,
+			strconv.Itoa(r.HTTPStatus), fmt.Sprintf("%.2f", r.LatencyMs), r.Verdict, strconv.Itoa(r.Attempts), r.StopReason,
+			strconv.Itoa(len(r.Signatures)), strconv.Itoa(parsed),
+			joinNonEmpty(layouts), joinNonEmpty(models), joinNonEmpty(blocks), joinNonEmpty(uuids),
+			joinNonEmpty(signed), strconv.Itoa(chars), strconv.Itoa(bytes), strconv.Itoa(fields), strconv.FormatBool(r.Duplicate),
+			strconv.Itoa(r.Usage.InputTokens), strconv.Itoa(r.Usage.OutputTokens), fmt.Sprintf("%.6f", r.Cost),
+			r.Error, strings.Join(parseErrs, "；"), strings.Join(warnings, "；"),
+		})
+	}
+}
+
+func joinNonEmpty(values []string) string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, ";")
 }
 
 func (s *Server) exportHTML(w http.ResponseWriter, view *model.RunView) {
@@ -173,6 +253,11 @@ func (s *Server) exportHTML(w http.ResponseWriter, view *model.RunView) {
 			var rep imagedetection.Report
 			if json.Unmarshal(raw, &rep) == nil {
 				data.ImageDetection = &rep
+			}
+		case model.KindClaudeSignature:
+			var rep claudesignature.Report
+			if json.Unmarshal(raw, &rep) == nil {
+				data.ClaudeSignature = &rep
 			}
 		}
 	}
@@ -227,6 +312,8 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 			return "模型真实性"
 		case model.KindImageDetection:
 			return "生图检测"
+		case model.KindClaudeSignature:
+			return "signature 签名核验"
 		}
 		return string(k)
 	},
@@ -354,6 +441,30 @@ var reportTemplate = template.Must(template.New("report").Funcs(template.FuncMap
 			return "bad"
 		}
 		return "warn"
+	},
+	"sigVerdictLabel": func(v string) string {
+		switch v {
+		case "pass":
+			return "通过"
+		case "suspicious":
+			return "可疑"
+		case "inconclusive":
+			return "证据不足"
+		case "error":
+			return "执行错误"
+		}
+		return v
+	},
+	"sigVerdictClass": func(v string) string {
+		switch v {
+		case "pass":
+			return "ok"
+		case "suspicious":
+			return "warn"
+		case "error":
+			return "bad"
+		}
+		return "muted"
 	},
 	"authGroup": func(s string) string {
 		if s == "外部证明（MCP / 证明页）" || s == "外部证明" {
@@ -629,6 +740,41 @@ footer{color:var(--muted);text-align:center;font-size:12px;margin-top:28px}
 </table>
 {{end}}
 <ul class="notes">{{range .ImageDetection.Notes}}<li>{{.}}</li>{{end}}</ul>
+</section>
+{{end}}
+
+{{if .ClaudeSignature}}
+<section>
+<h2>signature 签名核验</h2>
+<div class="cards">
+<div class="card"><span>请求 / 计划</span><b>{{.ClaudeSignature.Summary.Requests}} / {{.ClaudeSignature.Summary.Planned}}</b></div>
+<div class="card"><span>签名 / 解析成功</span><b>{{.ClaudeSignature.Summary.Signatures}} / {{.ClaudeSignature.Summary.Parsed}}</b></div>
+<div class="card"><span>通过 / 可疑</span><b><span class="ok">{{.ClaudeSignature.Summary.Passed}}</span> / <span class="warn">{{.ClaudeSignature.Summary.Suspicious}}</span></b></div>
+<div class="card"><span>证据不足 / 错误</span><b>{{.ClaudeSignature.Summary.Inconclusive}} / <span class="bad">{{.ClaudeSignature.Summary.Errors}}</span></b></div>
+<div class="card"><span>请求 ID 覆盖</span><b>{{.ClaudeSignature.Summary.WithRequestID}} / {{.ClaudeSignature.Summary.Requests}}</b></div>
+<div class="card"><span>重复签名</span><b class="warn">{{.ClaudeSignature.Summary.Duplicates}}</b></div>
+</div>
+<h3>模型汇总</h3>
+<table><tr><th>上游</th><th>模型</th><th class="right">请求</th><th class="right">通过</th><th class="right">可疑</th><th class="right">证据不足</th><th class="right">错误</th><th class="right">签名 / 解析</th><th class="right">重复</th><th>错误</th></tr>
+{{range .ClaudeSignature.Models}}<tr>
+<td>{{.TargetName}}</td><td class="mono">{{.Model}}</td><td class="right">{{.Requests}}</td>
+<td class="right ok">{{.Passed}}</td><td class="right warn">{{.Suspicious}}</td><td class="right">{{.Inconclusive}}</td><td class="right bad">{{.Errors}}</td>
+<td class="right">{{.Signatures}} / {{.Parsed}}</td><td class="right">{{.Duplicates}}</td><td class="mono bad">{{.Error}}</td>
+</tr>{{end}}</table>
+<h3>逐条解析结果</h3>
+<table><tr><th>#</th><th>请求 ID</th><th>目标</th><th>模型</th><th>布局</th><th>签名内模型</th><th>块类型</th><th>UUID</th><th>签名时间（UTC+8）</th><th>签名大小</th><th>结论</th><th>证据</th></tr>
+{{range .ClaudeSignature.Requests}}<tr>
+<td>{{.GlobalIndex}}</td><td class="mono">{{if .RequestID}}{{.RequestID}}{{else}}-{{end}}</td><td>{{.TargetName}}</td><td class="mono">{{.Model}}</td>
+<td>{{range $i, $s := .Signatures}}{{if $i}}；{{end}}{{$s.Layout}}{{end}}</td>
+<td class="mono">{{range $i, $s := .Signatures}}{{if $i}}；{{end}}{{$s.Model}}{{end}}</td>
+<td>{{range $i, $s := .Signatures}}{{if $i}}；{{end}}{{$s.EmbeddedBlockType}}{{end}}</td>
+<td class="mono">{{range $i, $s := .Signatures}}{{if $i}}；{{end}}{{$s.UUID}}{{end}}</td>
+<td>{{range $i, $s := .Signatures}}{{if $i}}；{{end}}{{$s.SignedAtUTC8}}{{end}}</td>
+<td>{{range $i, $s := .Signatures}}{{if $i}}；{{end}}{{$s.SignatureChars}}/{{$s.ProtoBytes}}{{end}}</td>
+<td class="{{sigVerdictClass .Verdict}}"><b>{{sigVerdictLabel .Verdict}}</b></td>
+<td class="mono">{{if .Error}}{{.Error}}{{else}}{{range $i, $c := .Checks}}{{if eq $c.Status "fail"}}{{if $i}}；{{end}}{{$c.Name}}: {{$c.Evidence}}{{end}}{{end}}{{end}}</td>
+</tr>{{end}}</table>
+<ul class="notes">{{range .ClaudeSignature.Notes}}<li>{{.}}</li>{{end}}</ul>
 </section>
 {{end}}
 

@@ -9,7 +9,7 @@ import {
 } from '@ant-design/icons'
 import { api, subscribeRun } from '../api'
 import type {
-  AuditReport, AuthenticityReport, ImageDetectionReport, InjectionReport, Live, RequestDiffReport,
+  AuditReport, AuthenticityReport, ImageDetectionReport, InjectionReport, Live, RequestDiffReport, SignatureReport,
 } from '../types'
 import {
   kindLabel, fmtInt, fmtPct, fmtDuration, fmtCost, auditCellStats,
@@ -21,6 +21,7 @@ import AuditReportView from '../components/AuditReportView'
 import InjectionReportView from '../components/InjectionReportView'
 import AuthenticityReportView from '../components/AuthenticityReportView'
 import ImageDetectionReportView from '../components/ImageDetectionReportView'
+import SignatureReportView from '../components/SignatureReportView'
 import RunItems from '../components/RunItems'
 import { DiffPanel, FindingsTable, SnapshotTable } from '../components/RequestDiffTabs'
 import { stressPlan } from '../progress'
@@ -191,6 +192,10 @@ export default function RunDetail() {
     ? (reportData as ImageDetectionReport | undefined)
     : undefined
   const imageSummary = imageReport?.summary
+  const signatureReport = kind === 'claude_signature'
+    ? (reportData as SignatureReport | undefined)
+    : undefined
+  const signatureSummary = signatureReport?.summary
   const passRateOf = (passed?: number, failed?: number) => {
     const p = passed || 0
     const f = failed || 0
@@ -199,7 +204,16 @@ export default function RunDetail() {
   const headerKpis = (
     <div className="kpi-grid" style={{ marginBottom: 14 }}>
       <Kpi label="状态" value={<StatusTag status={status} />} />
-      {imageSummary ? (
+      {signatureSummary ? (
+        <>
+          <Kpi label="请求 / 计划" value={`${fmtInt(signatureSummary.requests)} / ${fmtInt(signatureSummary.planned)}`} />
+          <Kpi label="签名 / 解析" value={`${fmtInt(signatureSummary.signatures)} / ${fmtInt(signatureSummary.parsed)}`} />
+          <Kpi label="通过 / 可疑" value={<span style={{ color: '#16a34a' }}>{signatureSummary.passed} / {signatureSummary.suspicious}</span>} />
+          <Kpi label="证据不足 / 错误" value={`${signatureSummary.inconclusive} / ${signatureSummary.errors}`} />
+          <Kpi label="请求 ID 覆盖" value={`${fmtInt(signatureSummary.withRequestId)} / ${fmtInt(signatureSummary.requests)}`} />
+          <Kpi label="耗时 / 成本" value={`${fmtDuration(summary?.elapsedMs ?? live?.elapsedMs)} / ${fmtCost(summary?.cost)}`} />
+        </>
+      ) : imageSummary ? (
         <>
           <Kpi label="模型数" value={fmtInt(imageSummary.models)} />
           <Kpi label="测试项" value={fmtInt(imageSummary.phases)} />
@@ -250,8 +264,8 @@ export default function RunDetail() {
           )}
         </>
       )}
-      <Kpi label="耗时" value={fmtDuration(summary?.elapsedMs ?? live?.elapsedMs)} />
-      <Kpi label="成本" value={fmtCost(summary?.cost)} />
+      {!signatureSummary && <Kpi label="耗时" value={fmtDuration(summary?.elapsedMs ?? live?.elapsedMs)} />}
+      {!signatureSummary && <Kpi label="成本" value={fmtCost(summary?.cost)} />}
     </div>
   )
 
@@ -320,6 +334,16 @@ export default function RunDetail() {
       {
         key: 'overview', label: '检测结果',
         children: <ImageDetectionReportView report={imageReport} runId={id} live={live} />,
+      },
+      { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
+      { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
+      { key: 'config', label: '配置', children: <JsonBlock value={data.config} maxHeight={620} /> },
+    ]
+  } else if (kind === 'claude_signature') {
+    tabs = [
+      {
+        key: 'overview', label: '核验结果',
+        children: <SignatureReportView report={signatureReport} live={live} />,
       },
       { key: 'items', label: '结果明细', children: <RunItems runId={id} kind={kind} models={models.filter(Boolean)} polling={isRunning && tabKey === 'items'} /> },
       { key: 'raw', label: '原始报告', children: <JsonBlock value={reportData || {}} maxHeight={620} /> },
